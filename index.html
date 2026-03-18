@@ -475,7 +475,23 @@ input[type="date"] {
 .ball-name-input:focus { border-color: var(--green); }
 
 /* ドラッグ&ドロップ */
-.step-item[draggable="true"] { cursor: grab; }
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 40px;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: grab;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  border-radius: 6px;
+}
+.drag-handle:hover { color: var(--green); background: rgba(0,229,160,0.08); }
+.drag-handle:active { cursor: grabbing; }
 .step-item.dragging { opacity: 0.4; }
 .step-item.drag-over {
   border-top: 2px solid var(--green);
@@ -2645,7 +2661,8 @@ function renderReview() {
       var nameInput = isSelf ? ''
         : '<input type="text" class="ball-name-input" placeholder="相手の名前" value="' + ballName.replace(/"/g, '&quot;') + '" data-ti="' + ti + '" data-si="' + si + '" />';
 
-      stepsHtml += '<div class="step-item" draggable="true" data-drag-ti="' + ti + '" data-drag-si="' + si + '">'
+      stepsHtml += '<div class="step-item" data-drag-ti="' + ti + '" data-drag-si="' + si + '">'
+        + '<div class="drag-handle" draggable="true" data-drag-ti="' + ti + '" data-drag-si="' + si + '">⠿</div>'
         + '<div class="step-left"><div class="s-num ' + (isSelf ? 's-self' : 's-wait') + '">' + (si+1) + '</div></div>'
         + '<div class="step-content">'
         + '<input class="step-editable" value="' + step.text.replace(/"/g, '&quot;') + '" data-ti="' + ti + '" data-si="' + si + '" />'
@@ -2656,9 +2673,7 @@ function renderReview() {
         + '<input type="date" class="step-deadline-input" value="' + dlVal + '" data-ti="' + ti + '" data-si="' + si + '" title="ステップの期限" />'
         + '</div></div>'
         + '<div class="step-actions">'
-        + '<div class="mini-btn" data-action="up" data-ti="' + ti + '" data-si="' + si + '" title="上へ">↑</div>'
         + '<div class="mini-btn del" data-action="del" data-ti="' + ti + '" data-si="' + si + '" title="削除">×</div>'
-        + '<div class="mini-btn" data-action="down" data-ti="' + ti + '" data-si="' + si + '" title="下へ">↓</div>'
         + '</div></div>';
     }
 
@@ -2680,17 +2695,7 @@ function renderReview() {
     var ti = parseInt(target.getAttribute('data-ti'));
     var si = parseInt(target.getAttribute('data-si'));
 
-    if (action === 'up' && si > 0) {
-      var tmp = parsedTasks[ti].steps[si];
-      parsedTasks[ti].steps[si] = parsedTasks[ti].steps[si-1];
-      parsedTasks[ti].steps[si-1] = tmp;
-      renderReview();
-    } else if (action === 'down' && si < parsedTasks[ti].steps.length - 1) {
-      var tmp2 = parsedTasks[ti].steps[si];
-      parsedTasks[ti].steps[si] = parsedTasks[ti].steps[si+1];
-      parsedTasks[ti].steps[si+1] = tmp2;
-      renderReview();
-    } else if (action === 'del') {
+    if (action === 'del') {
       parsedTasks[ti].steps.splice(si, 1);
       renderReview();
     } else if (action === 'add') {
@@ -2732,33 +2737,31 @@ function renderReview() {
   var dragSi = null;
 
   tree.addEventListener('dragstart', function(e) {
-    var item = e.target.closest('.step-item[draggable]');
-    if (!item) { return; }
-    dragTi = parseInt(item.getAttribute('data-drag-ti'));
-    dragSi = parseInt(item.getAttribute('data-drag-si'));
-    item.classList.add('dragging');
+    var handle = e.target.closest('.drag-handle');
+    if (!handle) { e.preventDefault(); return; }
+    dragTi = parseInt(handle.getAttribute('data-drag-ti'));
+    dragSi = parseInt(handle.getAttribute('data-drag-si'));
+    var item = handle.closest('.step-item');
+    if (item) { item.classList.add('dragging'); }
     e.dataTransfer.effectAllowed = 'move';
   });
 
   tree.addEventListener('dragend', function(e) {
-    var item = e.target.closest('.step-item[draggable]');
-    if (item) { item.classList.remove('dragging'); }
-    // 全drag-overクラスを除去
+    var items = tree.querySelectorAll('.step-item.dragging');
+    for (var i = 0; i < items.length; i++) { items[i].classList.remove('dragging'); }
     var overs = tree.querySelectorAll('.drag-over');
-    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+    for (var j = 0; j < overs.length; j++) { overs[j].classList.remove('drag-over'); }
     dragTi = null;
     dragSi = null;
   });
 
   tree.addEventListener('dragover', function(e) {
     e.preventDefault();
-    var item = e.target.closest('.step-item[draggable]');
+    var item = e.target.closest('.step-item');
     if (!item) { return; }
     var overTi = parseInt(item.getAttribute('data-drag-ti'));
-    // 同じタスク内のみ並び替え可能
-    if (overTi !== dragTi) { return; }
+    if (dragTi === null || overTi !== dragTi) { return; }
     e.dataTransfer.dropEffect = 'move';
-    // 一旦全クリア
     var overs = tree.querySelectorAll('.drag-over');
     for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
     item.classList.add('drag-over');
@@ -2766,16 +2769,89 @@ function renderReview() {
 
   tree.addEventListener('drop', function(e) {
     e.preventDefault();
-    var item = e.target.closest('.step-item[draggable]');
+    var item = e.target.closest('.step-item');
     if (!item) { return; }
     var dropTi = parseInt(item.getAttribute('data-drag-ti'));
     var dropSi = parseInt(item.getAttribute('data-drag-si'));
     if (dragTi === null || dragTi !== dropTi || dragSi === dropSi) { return; }
-    // ステップを入れ替え
     var steps = parsedTasks[dragTi].steps;
     var moved = steps.splice(dragSi, 1)[0];
     steps.splice(dropSi, 0, moved);
     renderReview();
+  });
+
+  // ── タッチベースD&D（モバイル対応） ──
+  var touchDragTi = null;
+  var touchDragSi = null;
+  var touchDragItem = null;
+  var touchTimer = null;
+  var touchActive = false;
+
+  tree.addEventListener('touchstart', function(e) {
+    var handle = e.target.closest('.drag-handle');
+    if (!handle) { return; }
+    var item = handle.closest('.step-item');
+    if (!item) { return; }
+
+    touchDragTi = parseInt(handle.getAttribute('data-drag-ti'));
+    touchDragSi = parseInt(handle.getAttribute('data-drag-si'));
+    touchDragItem = item;
+
+    // 長押し判定（200ms）
+    touchTimer = setTimeout(function() {
+      touchActive = true;
+      item.classList.add('dragging');
+    }, 200);
+  }, { passive: true });
+
+  tree.addEventListener('touchmove', function(e) {
+    if (!touchActive) {
+      clearTimeout(touchTimer);
+      return;
+    }
+    e.preventDefault();
+    var touch = e.touches[0];
+    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!el) { return; }
+    var overItem = el.closest('.step-item');
+    // 全クリア
+    var overs = tree.querySelectorAll('.drag-over');
+    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+    if (overItem && parseInt(overItem.getAttribute('data-drag-ti')) === touchDragTi) {
+      overItem.classList.add('drag-over');
+    }
+  }, { passive: false });
+
+  tree.addEventListener('touchend', function(e) {
+    clearTimeout(touchTimer);
+    if (!touchActive) {
+      touchDragItem = null;
+      return;
+    }
+    touchActive = false;
+
+    // ドロップ先の特定
+    var overs = tree.querySelectorAll('.drag-over');
+    var dropItem = overs.length > 0 ? overs[0] : null;
+
+    // クリア
+    if (touchDragItem) { touchDragItem.classList.remove('dragging'); }
+    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+
+    if (dropItem) {
+      var dropTi = parseInt(dropItem.getAttribute('data-drag-ti'));
+      var dropSi = parseInt(dropItem.getAttribute('data-drag-si'));
+      if (touchDragTi === dropTi && touchDragSi !== dropSi) {
+        var steps = parsedTasks[touchDragTi].steps;
+        var movedStep = steps.splice(touchDragSi, 1)[0];
+        steps.splice(dropSi, 0, movedStep);
+        renderReview();
+      }
+    }
+
+    touchDragTi = null;
+    touchDragSi = null;
+    touchDragItem = null;
   });
 }
 
