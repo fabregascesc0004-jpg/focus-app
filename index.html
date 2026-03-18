@@ -1117,9 +1117,157 @@ input[type="date"] {
 .api-guide li {
   margin-bottom: 4px;
 }
+/* ── ONBOARDING SCREEN ── */
+.onboarding-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  z-index: 9999;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.onboarding-overlay.active { display: block; }
+.onboarding-inner {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 40px 20px 60px;
+}
+.onboarding-logo {
+  font-family: 'Syne', sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--green);
+  text-align: center;
+  margin-bottom: 6px;
+}
+.onboarding-subtitle {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 30px;
+}
+.onboarding-progress {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 28px;
+}
+.onboarding-progress-dot {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface2);
+  transition: background 0.3s;
+}
+.onboarding-progress-dot.filled { background: var(--green); }
+.onboarding-question {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+.onboarding-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 18px;
+}
+.onboarding-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.onboarding-opt {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.onboarding-opt:hover { border-color: var(--green); }
+.onboarding-opt.selected {
+  border-color: var(--green);
+  background: rgba(0,229,160,0.08);
+}
+.onboarding-opt.multi.selected::before {
+  content: '✓ ';
+  color: var(--green);
+  font-weight: 700;
+}
+.onboarding-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  color: var(--text);
+  font-size: 15px;
+  outline: none;
+  box-sizing: border-box;
+  margin-bottom: 24px;
+}
+.onboarding-input:focus { border-color: var(--green); }
+.onboarding-nav {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.onboarding-nav button {
+  flex: 1;
+  padding: 14px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+}
+.onboarding-back {
+  background: var(--surface);
+  color: var(--text);
+}
+.onboarding-next {
+  background: var(--green);
+  color: #000;
+}
+.onboarding-next:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.onboarding-privacy {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 20px;
+  line-height: 1.6;
+}
 </style>
 </head>
 <body>
+
+<!-- ============================================================ -->
+<!-- ONBOARDING: 初回セットアップQ&A -->
+<!-- ============================================================ -->
+<div class="onboarding-overlay" id="onboarding">
+  <div class="onboarding-inner">
+    <div class="onboarding-logo">FO<em style="color:var(--green);font-style:normal">.</em>CUS</div>
+    <div class="onboarding-subtitle">あなたに合った分解をするために、少しだけ教えてください</div>
+    <div class="onboarding-progress" id="obProgress"></div>
+    <div id="obQuestionArea"></div>
+    <div class="onboarding-nav">
+      <button class="onboarding-back" id="obBack">戻る</button>
+      <button class="onboarding-next" id="obNext">次へ</button>
+    </div>
+    <div class="onboarding-privacy">
+      回答はこの端末にのみ保存されます。<br>
+      AI分解時にGemini/Claude APIに送信されます。
+    </div>
+  </div>
+</div>
 
 <header>
   <div class="logo">FO<em>.</em>CUS</div>
@@ -1356,9 +1504,18 @@ input[type="date"] {
   </div>
 
   <div class="settings-section">
+    <div class="settings-title">プロフィール</div>
+    <div class="settings-desc">
+      AI分解の精度に使われる、あなたの情報です。
+    </div>
+    <div id="profileSummary" style="font-size:12px; color:var(--text); margin-bottom:10px"></div>
+    <button class="settings-btn settings-btn-primary" id="redoOnboardingBtn">プロフィールを再設定</button>
+  </div>
+
+  <div class="settings-section">
     <div class="settings-title">バージョン情報</div>
     <div class="settings-desc">
-      FOCUS v1.3<br>
+      FOCUS v1.4<br>
       ADHDユーザーのためのタスク管理アプリ
     </div>
   </div>
@@ -1426,6 +1583,270 @@ function saveApiKey(provider, value) {
 // ── Artifact環境かどうかの判定 ──
 function isArtifactEnv() {
   return !!(window.storage && typeof window.storage.get === 'function');
+}
+
+// ============================================================
+// ユーザープロフィール（オンボーディングQ&A）
+// ============================================================
+var PROFILE_KEY = 'focus_user_profile';
+
+// ── Q&Aの質問定義 ──
+var ONBOARDING_QUESTIONS = [
+  {
+    id: 'nickname',
+    question: 'なんて呼べばいい？',
+    hint: 'AIがこの名前で話しかけます',
+    type: 'text',
+    placeholder: '例：たけし、まい、ニックネーム'
+  },
+  {
+    id: 'job',
+    question: 'どんな仕事をしてる？',
+    hint: '仕事内容に合わせた分解をします',
+    type: 'text',
+    placeholder: '例：営業、エンジニア、デザイナー、学生、主婦'
+  },
+  {
+    id: 'procrastination',
+    question: 'タスクを先延ばしにするとき、一番の原因は？',
+    hint: 'つまずきポイントに合わせて分解します',
+    type: 'single',
+    options: [
+      '何から始めればいいか分からない',
+      '面倒くさくて手が動かない',
+      '完璧にしたくて踏み出せない',
+      '興味がなくてやる気が出ない'
+    ]
+  },
+  {
+    id: 'focusMinutes',
+    question: '集中が切れるまで何分くらい？',
+    hint: 'ステップの長さをこの時間に合わせます',
+    type: 'single',
+    options: [
+      '5分くらい',
+      '15分くらい',
+      '30分くらい',
+      '60分以上もつ'
+    ]
+  },
+  {
+    id: 'motivation',
+    question: 'どんな声かけが一番動ける？',
+    hint: 'AIの話し方をあなたに合わせます',
+    type: 'single',
+    options: [
+      '「大丈夫、まず1つだけやろう」（やさしめ）',
+      '「サクッとやっちゃおう！」（フランク）',
+      '「期限は明日です」（事務的）'
+    ]
+  },
+  {
+    id: 'weakPoints',
+    question: 'これだけは苦手、ということは？',
+    hint: '苦手なことはより細かく分解します（複数選択OK）',
+    type: 'multi',
+    options: [
+      '電話をかける',
+      '書類・事務作業',
+      '朝起きる・朝の準備',
+      '片付け・整理',
+      '人に頼む・相談する',
+      '長時間の作業'
+    ]
+  },
+  {
+    id: 'granularity',
+    question: '分解はどのくらい細かいのが好み？',
+    hint: '',
+    type: 'single',
+    options: [
+      'こまかく手取り足取り教えて',
+      'ほどほどがいい',
+      'ざっくりでいい'
+    ]
+  }
+];
+
+// ── プロフィールの保存・読み込み ──
+function getProfile() {
+  try {
+    var raw = localStorage.getItem(PROFILE_KEY);
+    if (raw) { return JSON.parse(raw); }
+  } catch (e) {}
+  return null;
+}
+
+function saveProfile(profile) {
+  try {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    return true;
+  } catch (e) { return false; }
+}
+
+function hasProfile() {
+  return getProfile() !== null;
+}
+
+// ── プロフィールからAIプロンプト用テキストを生成 ──
+function buildProfilePrompt() {
+  var p = getProfile();
+  if (!p) { return ''; }
+
+  var lines = [];
+  lines.push('【ユーザー情報】');
+  if (p.nickname) { lines.push('呼び名：' + p.nickname); }
+  if (p.job) { lines.push('職種：' + p.job); }
+  if (p.procrastination) { lines.push('先延ばしの主因：' + p.procrastination); }
+  if (p.focusMinutes) { lines.push('集中力の目安：' + p.focusMinutes); }
+  if (p.motivation) { lines.push('好む声かけ：' + p.motivation); }
+  if (p.weakPoints && p.weakPoints.length > 0) {
+    lines.push('苦手なこと：' + p.weakPoints.join('、'));
+  }
+  if (p.granularity) { lines.push('分解の粒度：' + p.granularity); }
+  lines.push('');
+  lines.push('上記の情報を踏まえて、この人に最適な粒度・口調でタスクを分解してください。');
+  lines.push('苦手なことに関連するステップはより細かく分解してください。');
+  lines.push('集中力の目安を超えないステップにしてください。');
+
+  return lines.join('\n');
+}
+
+// ── オンボーディング画面の制御 ──
+var obCurrentStep = 0;
+var obAnswers = {};
+
+function startOnboarding() {
+  obCurrentStep = 0;
+  obAnswers = {};
+  document.getElementById('onboarding').classList.add('active');
+  renderOnboardingStep();
+}
+
+function renderOnboardingStep() {
+  var q = ONBOARDING_QUESTIONS[obCurrentStep];
+  var total = ONBOARDING_QUESTIONS.length;
+
+  // プログレスバー
+  var progressHtml = '';
+  for (var i = 0; i < total; i++) {
+    progressHtml += '<div class="onboarding-progress-dot' + (i <= obCurrentStep ? ' filled' : '') + '"></div>';
+  }
+  document.getElementById('obProgress').innerHTML = progressHtml;
+
+  // 質問エリア
+  var areaEl = document.getElementById('obQuestionArea');
+  var html = '<div class="onboarding-question">' + q.question + '</div>';
+  if (q.hint) {
+    html += '<div class="onboarding-hint">' + q.hint + '</div>';
+  }
+
+  if (q.type === 'text') {
+    var savedVal = obAnswers[q.id] || '';
+    html += '<input class="onboarding-input" id="obTextInput" type="text"'
+      + ' placeholder="' + q.placeholder + '"'
+      + ' value="' + savedVal + '">';
+  } else if (q.type === 'single') {
+    html += '<div class="onboarding-options">';
+    for (var j = 0; j < q.options.length; j++) {
+      var sel = (obAnswers[q.id] === q.options[j]) ? ' selected' : '';
+      html += '<button class="onboarding-opt' + sel + '" data-val="' + j + '">'
+        + q.options[j] + '</button>';
+    }
+    html += '</div>';
+  } else if (q.type === 'multi') {
+    var selectedArr = obAnswers[q.id] || [];
+    html += '<div class="onboarding-options">';
+    for (var k = 0; k < q.options.length; k++) {
+      var msel = (selectedArr.indexOf(q.options[k]) !== -1) ? ' selected' : '';
+      html += '<button class="onboarding-opt multi' + msel + '" data-val="' + k + '">'
+        + q.options[k] + '</button>';
+    }
+    html += '</div>';
+  }
+
+  areaEl.innerHTML = html;
+
+  // イベント登録
+  if (q.type === 'single') {
+    var opts = areaEl.querySelectorAll('.onboarding-opt');
+    for (var oi = 0; oi < opts.length; oi++) {
+      opts[oi].addEventListener('click', function() {
+        var idx = parseInt(this.getAttribute('data-val'));
+        obAnswers[q.id] = q.options[idx];
+        // 選択状態を更新
+        var allOpts = areaEl.querySelectorAll('.onboarding-opt');
+        for (var x = 0; x < allOpts.length; x++) { allOpts[x].classList.remove('selected'); }
+        this.classList.add('selected');
+        updateObNextBtn();
+      });
+    }
+  } else if (q.type === 'multi') {
+    var mopts = areaEl.querySelectorAll('.onboarding-opt');
+    for (var mi = 0; mi < mopts.length; mi++) {
+      mopts[mi].addEventListener('click', function() {
+        var idx = parseInt(this.getAttribute('data-val'));
+        var arr = obAnswers[q.id] || [];
+        var val = q.options[idx];
+        var pos = arr.indexOf(val);
+        if (pos === -1) { arr.push(val); } else { arr.splice(pos, 1); }
+        obAnswers[q.id] = arr;
+        this.classList.toggle('selected');
+        updateObNextBtn();
+      });
+    }
+  } else if (q.type === 'text') {
+    var inp = document.getElementById('obTextInput');
+    inp.addEventListener('input', function() {
+      obAnswers[q.id] = this.value.trim();
+      updateObNextBtn();
+    });
+    inp.focus();
+  }
+
+  // 戻るボタンの表示制御
+  document.getElementById('obBack').style.display = (obCurrentStep === 0) ? 'none' : 'block';
+
+  // 最後の質問なら「はじめる」ボタン
+  var nextBtn = document.getElementById('obNext');
+  if (obCurrentStep === total - 1) {
+    nextBtn.textContent = 'はじめる！';
+  } else {
+    nextBtn.textContent = '次へ';
+  }
+
+  updateObNextBtn();
+}
+
+function updateObNextBtn() {
+  var q = ONBOARDING_QUESTIONS[obCurrentStep];
+  var btn = document.getElementById('obNext');
+  var answered = false;
+
+  if (q.type === 'text') {
+    answered = !!(obAnswers[q.id] && obAnswers[q.id].length > 0);
+  } else if (q.type === 'single') {
+    answered = !!obAnswers[q.id];
+  } else if (q.type === 'multi') {
+    answered = !!(obAnswers[q.id] && obAnswers[q.id].length > 0);
+  }
+  btn.disabled = !answered;
+}
+
+function finishOnboarding() {
+  var profile = {
+    nickname: obAnswers.nickname || '',
+    job: obAnswers.job || '',
+    procrastination: obAnswers.procrastination || '',
+    focusMinutes: obAnswers.focusMinutes || '',
+    motivation: obAnswers.motivation || '',
+    weakPoints: obAnswers.weakPoints || [],
+    granularity: obAnswers.granularity || '',
+    createdAt: new Date().toISOString()
+  };
+  saveProfile(profile);
+  document.getElementById('onboarding').classList.remove('active');
+  showToast('✓ プロフィールを保存しました！');
 }
 
 // ── カスタムassert関数（ファイル先頭に一度だけ定義） ──
@@ -1625,8 +2046,12 @@ async function startDecompose() {
   }, 1200);
 
   try {
+    // ── プロフィール情報をプロンプトに注入 ──
+    var profilePrompt = buildProfilePrompt();
+
     var promptText = 'あなたはADHDのユーザーを助けるタスク管理AIです。\n\n'
-      + '以下の入力からタスクを抽出し、各タスクを5〜15分の小さなステップに分解してください。\n'
+      + (profilePrompt ? profilePrompt + '\n\n' : '')
+      + '以下の入力からタスクを抽出し、各タスクを小さなステップに分解してください。\n'
       + deadlineText + '\n\n'
       + 'ユーザーの入力：\n「' + input + '」\n\n'
       + '以下のJSON形式のみで返答してください。前置きや説明は不要です。\n'
@@ -1636,7 +2061,7 @@ async function startDecompose() {
       + 'ルール：\n'
       + '- ステップは必ず具体的な行動にする\n'
       + '- ballが相手の場合は誰のボールか明記（例："相手：上司"）\n'
-      + '- 1ステップは5〜20分以内\n'
+      + '- 1ステップはユーザーの集中力の目安を超えない長さにする\n'
       + '- 最大6ステップまで';
 
     // ── AIプロバイダーの判定とAPI呼び出し ──
@@ -2462,6 +2887,20 @@ function updateSettingsScreen() {
   } catch (e) {
     statsEl.textContent = '読み取り不可';
   }
+
+  // プロフィール表示
+  var profEl = document.getElementById('profileSummary');
+  var prof = getProfile();
+  if (prof) {
+    var parts = [];
+    if (prof.nickname) { parts.push('呼び名：' + prof.nickname); }
+    if (prof.job) { parts.push('職種：' + prof.job); }
+    if (prof.focusMinutes) { parts.push('集中力：' + prof.focusMinutes); }
+    if (prof.granularity) { parts.push('粒度：' + prof.granularity); }
+    profEl.textContent = parts.join(' / ');
+  } else {
+    profEl.textContent = '未設定';
+  }
 }
 
 // ============================================================
@@ -2471,6 +2910,34 @@ function updateSettingsScreen() {
 (async function init() {
   try {
     updateHeaderDate();
+
+    // ── オンボーディング（初回のみ） ──
+    if (!hasProfile()) {
+      startOnboarding();
+    }
+
+    // ── オンボーディングのナビボタン ──
+    document.getElementById('obNext').addEventListener('click', function() {
+      var q = ONBOARDING_QUESTIONS[obCurrentStep];
+      // テキスト入力の場合、値を取得
+      if (q.type === 'text') {
+        var inp = document.getElementById('obTextInput');
+        if (inp) { obAnswers[q.id] = inp.value.trim(); }
+      }
+      if (obCurrentStep < ONBOARDING_QUESTIONS.length - 1) {
+        obCurrentStep++;
+        renderOnboardingStep();
+      } else {
+        finishOnboarding();
+      }
+    });
+
+    document.getElementById('obBack').addEventListener('click', function() {
+      if (obCurrentStep > 0) {
+        obCurrentStep--;
+        renderOnboardingStep();
+      }
+    });
 
     // ── 登録ボタン ──
     document.getElementById('registerBtn').addEventListener('click', function() {
@@ -2517,6 +2984,11 @@ function updateSettingsScreen() {
       showToast('✓ データを削除しました');
       updateSettingsScreen();
       renderFocusScreen();
+    });
+
+    // ── プロフィール再設定 ──
+    document.getElementById('redoOnboardingBtn').addEventListener('click', function() {
+      startOnboarding();
     });
 
     await renderFocusScreen();
