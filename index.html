@@ -449,26 +449,48 @@ input[type="date"] {
   align-items: center;
 }
 .ball-badge {
-  font-size: 10px;
-  padding: 2px 8px;
+  font-size: 12px;
+  padding: 6px 14px;
   border-radius: 99px;
   font-weight: 600;
   cursor: pointer;
   user-select: none;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  -webkit-tap-highlight-color: transparent;
 }
 .ball-self { background: var(--green-dim); color: var(--green); }
 .ball-wait { background: var(--orange-dim); color: var(--orange); }
 .ball-name-input {
-  font-size: 10px;
+  font-size: 12px;
   background: var(--surface2);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 2px 8px;
+  padding: 5px 10px;
   border-radius: 99px;
   outline: none;
-  width: 80px;
+  width: 90px;
 }
 .ball-name-input:focus { border-color: var(--green); }
+
+/* ドラッグ&ドロップ */
+.step-item[draggable="true"] { cursor: grab; }
+.step-item.dragging { opacity: 0.4; }
+.step-item.drag-over {
+  border-top: 2px solid var(--green);
+}
+
+/* 実行画面のステップ追加ボタン */
+.tree-add-step {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+.tree-add-step:hover { color: var(--green); }
 .time-badge {
   font-size: 10px;
   color: var(--text-dim);
@@ -2623,7 +2645,7 @@ function renderReview() {
       var nameInput = isSelf ? ''
         : '<input type="text" class="ball-name-input" placeholder="相手の名前" value="' + ballName.replace(/"/g, '&quot;') + '" data-ti="' + ti + '" data-si="' + si + '" />';
 
-      stepsHtml += '<div class="step-item">'
+      stepsHtml += '<div class="step-item" draggable="true" data-drag-ti="' + ti + '" data-drag-si="' + si + '">'
         + '<div class="step-left"><div class="s-num ' + (isSelf ? 's-self' : 's-wait') + '">' + (si+1) + '</div></div>'
         + '<div class="step-content">'
         + '<input class="step-editable" value="' + step.text.replace(/"/g, '&quot;') + '" data-ti="' + ti + '" data-si="' + si + '" />'
@@ -2704,6 +2726,57 @@ function renderReview() {
       parsedTasks[ti3].steps[si3].ball = '相手：' + name;
     }
   };
+
+  // ── ドラッグ&ドロップ ──
+  var dragTi = null;
+  var dragSi = null;
+
+  tree.addEventListener('dragstart', function(e) {
+    var item = e.target.closest('.step-item[draggable]');
+    if (!item) { return; }
+    dragTi = parseInt(item.getAttribute('data-drag-ti'));
+    dragSi = parseInt(item.getAttribute('data-drag-si'));
+    item.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  tree.addEventListener('dragend', function(e) {
+    var item = e.target.closest('.step-item[draggable]');
+    if (item) { item.classList.remove('dragging'); }
+    // 全drag-overクラスを除去
+    var overs = tree.querySelectorAll('.drag-over');
+    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+    dragTi = null;
+    dragSi = null;
+  });
+
+  tree.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    var item = e.target.closest('.step-item[draggable]');
+    if (!item) { return; }
+    var overTi = parseInt(item.getAttribute('data-drag-ti'));
+    // 同じタスク内のみ並び替え可能
+    if (overTi !== dragTi) { return; }
+    e.dataTransfer.dropEffect = 'move';
+    // 一旦全クリア
+    var overs = tree.querySelectorAll('.drag-over');
+    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+    item.classList.add('drag-over');
+  });
+
+  tree.addEventListener('drop', function(e) {
+    e.preventDefault();
+    var item = e.target.closest('.step-item[draggable]');
+    if (!item) { return; }
+    var dropTi = parseInt(item.getAttribute('data-drag-ti'));
+    var dropSi = parseInt(item.getAttribute('data-drag-si'));
+    if (dragTi === null || dragTi !== dropTi || dragSi === dropSi) { return; }
+    // ステップを入れ替え
+    var steps = parsedTasks[dragTi].steps;
+    var moved = steps.splice(dragSi, 1)[0];
+    steps.splice(dropSi, 0, moved);
+    renderReview();
+  });
 }
 
 // ── タスク登録（保存） ──
@@ -3036,6 +3109,45 @@ async function deleteTask(taskId) {
   }
 }
 
+// ── 実行画面でステップ追加 ──
+async function addStepToTask(taskId) {
+  try {
+    var data = await loadData();
+    var task = null;
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
+    }
+    if (!task) { showToast('❌ タスクが見つかりません'); return; }
+
+    var newStep = {
+      id: 'step_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      text: '新しいステップ',
+      ball: '自分',
+      minutes: 10,
+      deadline: '',
+      status: 'todo'
+    };
+
+    // 最後の未完了ステップの前（currentの次）に挿入
+    var insertIdx = task.steps.length;
+    for (var s = task.steps.length - 1; s >= 0; s--) {
+      if (task.steps[s].status === 'done') { break; }
+      insertIdx = s;
+    }
+    // currentの後ろに入れる
+    for (var c = insertIdx; c < task.steps.length; c++) {
+      if (task.steps[c].status === 'current') { insertIdx = c + 1; break; }
+    }
+    task.steps.splice(insertIdx, 0, newStep);
+
+    await saveData(data);
+    showToast('✓ ステップを追加しました');
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ 追加失敗');
+  }
+}
+
 // ── ツリー開閉 ──
 function toggleTree(panelId, chevId) {
   var panel = document.getElementById(panelId);
@@ -3289,18 +3401,31 @@ async function renderFocusScreen() {
         childWrap.appendChild(row);
       }
 
+      // ステップ追加ボタン
+      var addStepEl = document.createElement('div');
+      addStepEl.className = 'tree-add-step';
+      addStepEl.textContent = '＋ ステップを追加';
+      addStepEl.setAttribute('data-add-task-id', aTask.id);
+      childWrap.appendChild(addStepEl);
+
       parentDiv.appendChild(childWrap);
       tree.appendChild(parentDiv);
     }
 
     container.appendChild(tree);
 
-    // 削除ボタンのイベント委譲
+    // 削除ボタン＋ステップ追加のイベント委譲
     tree.addEventListener('click', function(e) {
       var deleteBtn = e.target.closest('[data-delete-id]');
       if (deleteBtn) {
         e.stopPropagation();
         deleteTask(deleteBtn.getAttribute('data-delete-id'));
+        return;
+      }
+      var addBtn = e.target.closest('[data-add-task-id]');
+      if (addBtn) {
+        e.stopPropagation();
+        addStepToTask(addBtn.getAttribute('data-add-task-id'));
       }
     });
   }
