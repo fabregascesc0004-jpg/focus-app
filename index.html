@@ -1,0 +1,2449 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#00e5a0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FOCUS">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<title>FOCUS - ADHDタスク管理</title>
+<style>
+/*
+ * ============================================================
+ * FOCUS 統合版 v1.2
+ * ============================================================
+ * ① AI分解画面と実行画面をlocalStorageで繋いだ統合版
+ * ② 下部タブナビで画面切替
+ * ③ データ構造：{ tasks: Task[], currentTaskId, currentStepIndex }
+ *
+ * 【データ構造定義】
+ * Task = {
+ *   id: string (一意ID, "task_" + timestamp + random),
+ *   title: string (親タスク名),
+ *   emoji: string (絵文字1つ),
+ *   deadline: string (締切の説明),
+ *   createdAt: string (ISO日時),
+ *   status: "active" | "done" (タスク全体のステータス),
+ *   steps: Step[]
+ * }
+ * Step = {
+ *   id: string (一意ID, "step_" + timestamp + random),
+ *   text: string (ステップの内容),
+ *   ball: "自分" | "相手：〇〇" (ボール),
+ *   minutes: number (目安分数),
+ *   status: "todo" | "current" | "done" | "waiting" (ステータス)
+ * }
+ *
+ * localStorage key: "focus_app_data"
+ * 値: JSON.stringify({ tasks: Task[], updatedAt: string })
+ * ============================================================
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Noto+Sans+JP:wght@300;400;500;700&display=swap');
+
+:root {
+  --bg: #080810;
+  --surface: #12121a;
+  --surface2: #1a1a24;
+  --border: #252530;
+  --green: #00e5a0;
+  --green-dim: rgba(0,229,160,0.1);
+  --orange: #ff9500;
+  --orange-dim: rgba(255,149,0,0.1);
+  --purple: #7c6fff;
+  --purple-dim: rgba(124,111,255,0.1);
+  --red: #ff5a5a;
+  --text: #c0c0d0;
+  --text-dim: #50506a;
+  --white: #f0f0f8;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  font-family: 'Noto Sans JP', sans-serif;
+  min-height: 100vh;
+  /* ② padding-bottomでタブナビ分の余白を確保。忘れるとコンテンツが隠れる */
+  padding-bottom: 70px;
+  color: var(--text);
+  overflow-x: hidden;
+}
+
+/* ── HEADER ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 100;
+}
+
+.logo {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 0.15em;
+  color: var(--white);
+}
+.logo em { color: var(--green); font-style: normal; }
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.date {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.task-count-badge {
+  font-size: 10px;
+  color: var(--green);
+  background: var(--green-dim);
+  border: 1px solid rgba(0,229,160,0.3);
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-weight: 600;
+}
+
+/* ── TAB NAV (下部ナビ) ── */
+/* ① 固定配置で常に画面下に表示。z-indexを高くして他要素の上に */
+.tab-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 200;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 0 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Noto Sans JP', sans-serif;
+}
+
+.tab-icon {
+  font-size: 18px;
+  transition: transform 0.2s;
+}
+
+.tab-label {
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  transition: color 0.2s;
+}
+
+.tab-btn.active .tab-icon { transform: scale(1.15); }
+.tab-btn.active .tab-label { color: var(--green); font-weight: 600; }
+
+/* ── SCREEN CONTAINER ── */
+/* ② display:noneで非表示にし、.activeで表示。JSのswitchTabで制御 */
+.screen { display: none; padding: 16px; }
+.screen.active { display: block; }
+
+/* ============================================================
+ * DECOMPOSE SCREEN (分解画面)
+ * ============================================================ */
+
+/* Step Indicator */
+.steps-indicator {
+  display: flex;
+  align-items: center;
+  padding: 12px 4px;
+  gap: 0;
+  margin-bottom: 14px;
+}
+
+.step-ind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.step-ind-num {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'Syne', sans-serif;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+
+.step-ind-num.inactive { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+.step-ind-num.active { background: var(--green); color: #000; }
+.step-ind-num.done { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,229,160,0.3); }
+
+.step-ind-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  transition: color 0.3s;
+  white-space: nowrap;
+}
+.step-ind-label.active { color: var(--white); }
+
+.step-ind-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  margin: 0 6px;
+  min-width: 10px;
+}
+
+/* Input Zone */
+.input-zone { display: flex; flex-direction: column; gap: 14px; }
+
+.input-hint {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.input-hint strong { color: var(--text); display: block; margin-bottom: 4px; font-size: 11px; letter-spacing: 0.1em; }
+
+.examples { display: flex; flex-direction: column; gap: 6px; }
+
+.example-chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+.example-chip:hover {
+  background: var(--green-dim);
+  border-color: rgba(0,229,160,0.3);
+  color: var(--white);
+}
+.example-chip .chip-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  margin-bottom: 2px;
+}
+
+textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 14px;
+  color: var(--white);
+  resize: none;
+  outline: none;
+  min-height: 100px;
+  transition: border-color 0.2s;
+  line-height: 1.6;
+}
+textarea:focus { border-color: rgba(0,229,160,0.5); }
+textarea::placeholder { color: var(--text-dim); }
+
+.deadline-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.deadline-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+input[type="date"] {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 13px;
+  color: var(--white);
+  outline: none;
+  color-scheme: dark;
+}
+
+.decompose-btn {
+  width: 100%;
+  background: var(--green);
+  color: #000;
+  border: none;
+  border-radius: 14px;
+  padding: 14px;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.decompose-btn:hover { background: #00ffb3; transform: translateY(-1px); }
+.decompose-btn:disabled { background: var(--surface2); color: var(--text-dim); transform: none; cursor: not-allowed; }
+
+/* AI Thinking */
+.ai-thinking {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  gap: 16px;
+}
+.thinking-dots { display: flex; gap: 6px; }
+.dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: bounce 1.2s ease-in-out infinite;
+}
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce {
+  0%,80%,100% { transform: translateY(0); opacity: 0.3; }
+  40% { transform: translateY(-8px); opacity: 1; }
+}
+.thinking-text { font-size: 13px; color: var(--text-dim); text-align: center; line-height: 1.6; }
+.thinking-step { font-size: 11px; color: var(--green); opacity: 0; transition: opacity 0.5s; }
+
+/* Review Zone */
+.review-zone { display: none; flex-direction: column; gap: 12px; }
+
+.review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.review-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--white);
+}
+.edit-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--surface2);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+/* Review parent card */
+.review-parent {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.review-parent-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.rp-icon {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  background: var(--green-dim);
+  border: 1px solid rgba(0,229,160,0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.rp-info { flex: 1; }
+.rp-title { font-size: 14px; font-weight: 600; color: var(--white); }
+.rp-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+/* Step items in review */
+.step-list-review { padding: 6px 0; }
+.step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 14px;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.step-item:last-child { border-bottom: none; }
+.step-item:hover { background: var(--surface2); }
+
+.step-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.s-num {
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'Syne', sans-serif;
+}
+.s-self { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,229,160,0.3); }
+.s-wait { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,149,0,0.3); }
+
+.step-content { flex: 1; min-width: 0; }
+.step-editable {
+  font-size: 13px;
+  color: var(--white);
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  outline: none;
+  width: 100%;
+  font-family: 'Noto Sans JP', sans-serif;
+  line-height: 1.4;
+  cursor: text;
+}
+.step-editable:focus {
+  background: var(--surface2);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.step-detail {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ball-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-weight: 600;
+}
+.ball-self { background: var(--green-dim); color: var(--green); }
+.ball-wait { background: var(--orange-dim); color: var(--orange); }
+.time-badge {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--surface2);
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.step-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.mini-btn {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-dim);
+  font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mini-btn:hover { background: var(--border); color: var(--white); }
+.mini-btn.del:hover { background: rgba(255,90,90,0.2); color: var(--red); border-color: rgba(255,90,90,0.3); }
+
+.add-step-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  border-top: 1px dashed var(--border);
+}
+.add-step-btn:hover { color: var(--green); background: var(--green-dim); }
+
+.action-row { display: flex; gap: 8px; margin-top: 4px; }
+.action-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 12px;
+  border: none;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-primary { background: var(--green); color: #000; }
+.btn-primary:hover { background: #00ffb3; }
+.btn-secondary {
+  background: var(--surface2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  flex: 0.6;
+}
+
+/* Done Zone */
+.done-zone {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px 20px;
+  gap: 16px;
+  text-align: center;
+}
+.done-icon {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  background: var(--green-dim);
+  border: 2px solid var(--green);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px;
+}
+.done-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--white);
+}
+.done-sub {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.7;
+  max-width: 280px;
+}
+.done-stats { display: flex; gap: 12px; margin-top: 8px; }
+.stat {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  text-align: center;
+}
+.stat-num {
+  font-family: 'Syne', sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--green);
+}
+.stat-label { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+.start-btn, .go-focus-btn {
+  width: 100%;
+  border: none;
+  border-radius: 14px;
+  padding: 14px;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+.start-btn { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.start-btn:hover { background: var(--surface); }
+.go-focus-btn { background: var(--green); color: #000; }
+.go-focus-btn:hover { background: #00ffb3; transform: translateY(-1px); }
+
+.error-msg {
+  background: rgba(255,90,90,0.1);
+  border: 1px solid rgba(255,90,90,0.3);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--red);
+  display: none;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+/* ============================================================
+ * FOCUS SCREEN (実行画面)
+ * ============================================================ */
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 60px 20px;
+  gap: 14px;
+  text-align: center;
+}
+.empty-icon { font-size: 48px; opacity: 0.3; }
+.empty-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.empty-sub { font-size: 12px; color: var(--text-dim); line-height: 1.7; }
+.empty-btn {
+  background: var(--green);
+  color: #000;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 24px;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+/* Now Zone */
+.now-zone {
+  background: var(--surface);
+  border: 1px solid var(--green);
+  border-radius: 20px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 14px;
+}
+.now-zone::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at top right, rgba(0,229,160,0.07) 0%, transparent 60%);
+  pointer-events: none;
+}
+.now-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px 10px;
+}
+.now-pill {
+  background: var(--green);
+  color: #000;
+  font-family: 'Syne', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  padding: 3px 10px;
+  border-radius: 99px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.pulse-dot {
+  width: 5px; height: 5px;
+  background: #000;
+  border-radius: 50%;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; transform:scale(1); }
+  50% { opacity:0.3; transform:scale(0.7); }
+}
+.now-task-name {
+  padding: 0 18px 6px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--white);
+  line-height: 1.3;
+}
+.now-parent-info {
+  padding: 0 18px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.now-parent-info::before {
+  content: '↳';
+  color: var(--green);
+  opacity: 0.6;
+}
+.now-meta-row {
+  display: flex;
+  gap: 0;
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--border);
+}
+.now-meta-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.now-meta-item + .now-meta-item {
+  border-left: 1px solid var(--border);
+  padding-left: 14px;
+  margin-left: 14px;
+}
+.meta-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.meta-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--white);
+}
+.meta-value.green { color: var(--green); }
+.meta-value.orange { color: var(--orange); }
+
+.now-actions { display: flex; gap: 8px; padding: 0 16px 16px; }
+.act-btn {
+  flex: 1;
+  border: none;
+  border-radius: 12px;
+  padding: 11px 8px;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+.act-done { background: var(--green); color: #000; }
+.act-done:hover { background: #00ffb3; transform: translateY(-1px); }
+.act-pass { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,149,0,0.25); flex: 0.9; }
+.act-pass:hover { background: rgba(255,149,0,0.18); }
+.act-skip { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); flex: 0.7; }
+
+/* All Done */
+.all-done-zone {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px 20px;
+  gap: 14px;
+  text-align: center;
+}
+.all-done-icon { font-size: 48px; }
+.all-done-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--white);
+}
+.all-done-sub { font-size: 13px; color: var(--text-dim); line-height: 1.7; }
+
+/* Progress bar */
+.progress-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.prog-track {
+  flex: 1;
+  height: 3px;
+  background: var(--surface2);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.prog-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--purple));
+  border-radius: 99px;
+  transition: width 0.4s ease;
+}
+.prog-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* Tree Section */
+.tree-section-label {
+  font-family: 'Syne', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tree-section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.tree { display: flex; flex-direction: column; gap: 2px; }
+
+.parent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border: 1px solid transparent;
+}
+.parent-row:hover { background: var(--surface); }
+.parent-row.is-active { background: var(--green-dim); border-color: rgba(0,229,160,0.2); }
+
+.parent-icon {
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+  font-weight: 700;
+  font-family: 'Syne', sans-serif;
+}
+.pi-green { background: var(--green-dim); color: var(--green); border: 1px solid rgba(0,229,160,0.3); }
+.pi-orange { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,149,0,0.3); }
+.pi-done { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+
+.parent-info { flex: 1; min-width: 0; }
+.parent-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.parent-title.done-text { color: var(--text-dim); text-decoration: line-through; }
+.parent-title.now-active-text { color: var(--green); }
+
+.parent-sub {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 1px;
+  display: flex;
+  gap: 8px;
+}
+
+.chevron {
+  color: var(--text-dim);
+  font-size: 13px;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.chevron.open { transform: rotate(90deg); color: var(--green); }
+
+.children-wrap {
+  margin-left: 17px;
+  border-left: 1px solid var(--border);
+  padding-left: 4px;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border-radius: 8px;
+  position: relative;
+  transition: background 0.15s;
+  border: 1px solid transparent;
+  margin: 1px 0;
+}
+.step-row::before {
+  content: '';
+  position: absolute;
+  left: -4px; top: 50%;
+  width: 14px; height: 1px;
+  background: var(--border);
+}
+.step-row.step-now {
+  background: var(--green-dim);
+  border-color: rgba(0,229,160,0.25);
+}
+.step-row.step-done-row { opacity: 0.4; }
+
+.sn {
+  width: 20px; height: 20px;
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: 'Syne', sans-serif;
+  flex-shrink: 0;
+}
+.sn-now { background: var(--green); color: #000; }
+.sn-next { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+.sn-wait { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,149,0,0.3); }
+.sn-done { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+
+.step-text-tree {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text);
+}
+.t-now { color: var(--white); font-weight: 600; }
+.t-done { text-decoration: line-through; color: var(--text-dim); }
+.t-wait { color: var(--orange); }
+
+.step-right-tree {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 99px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.b-now { background: var(--green); color: #000; }
+.b-wait { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,149,0,0.3); }
+.b-done { background: var(--surface2); color: var(--text-dim); }
+
+.divider {
+  font-family: 'Syne', sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  margin: 14px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.wait-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid rgba(255,149,0,0.2);
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+.wait-icon {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: var(--orange-dim);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.wait-info { flex: 1; }
+.wait-title { font-size: 12px; font-weight: 600; color: var(--white); }
+.wait-sub { font-size: 10px; color: var(--orange); margin-top: 2px; }
+
+/* Delete task button */
+.delete-task-btn {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.delete-task-btn:hover { background: rgba(255,90,90,0.15); color: var(--red); border-color: rgba(255,90,90,0.3); }
+
+/* Spacer */
+.spacer { height: 20px; }
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  background: var(--green);
+  color: #000;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  transition: all 0.3s ease;
+  z-index: 300;
+  pointer-events: none;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+/* Settings Screen */
+.settings-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.settings-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.settings-label {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.settings-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.settings-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: monospace;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.settings-input:focus {
+  border-color: var(--green);
+}
+.settings-input::placeholder {
+  color: var(--text-dim);
+  font-family: 'Noto Sans JP', sans-serif;
+}
+.settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 10px;
+}
+.settings-btn-primary {
+  background: var(--green);
+  color: #000;
+}
+.settings-btn-primary:hover { opacity: 0.85; }
+.settings-btn-danger {
+  background: rgba(255,90,90,0.15);
+  color: var(--red);
+  border: 1px solid rgba(255,90,90,0.3);
+}
+.settings-btn-danger:hover { background: rgba(255,90,90,0.25); }
+.settings-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  margin-top: 8px;
+}
+.status-ok { background: rgba(0,229,160,0.1); color: var(--green); }
+.status-ng { background: rgba(255,90,90,0.1); color: var(--red); }
+.settings-link {
+  color: var(--green);
+  text-decoration: none;
+  font-size: 12px;
+}
+.settings-link:hover { text-decoration: underline; }
+.api-guide {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.api-guide ol {
+  margin: 6px 0 0 16px;
+  padding: 0;
+}
+.api-guide li {
+  margin-bottom: 4px;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">FO<em>.</em>CUS</div>
+  <div class="header-right">
+    <div class="task-count-badge" id="headerBadge">0 タスク</div>
+    <div class="date" id="headerDate"></div>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<!-- SCREEN 1: 実行画面 (FOCUS) -->
+<!-- ============================================================ -->
+<div class="screen active" id="screen-focus">
+
+  <!-- Empty State: タスクがない場合に表示 -->
+  <div class="empty-state" id="emptyState">
+    <div class="empty-icon">📋</div>
+    <div class="empty-title">タスクがありません</div>
+    <div class="empty-sub">「＋ 追加」タブからタスクを追加して<br>今やることに集中しましょう</div>
+    <button class="empty-btn" onclick="switchTab('add')">＋ タスクを追加</button>
+  </div>
+
+  <!-- Focus Content: タスクがある場合に表示 -->
+  <div id="focusContent" style="display:none">
+
+    <!-- Now Zone -->
+    <div class="now-zone" id="nowZone" style="display:none">
+      <div class="now-header">
+        <div class="now-pill"><div class="pulse-dot"></div>今やること</div>
+      </div>
+      <div class="now-task-name" id="nowTaskName">-</div>
+      <div class="now-parent-info" id="nowParentInfo">-</div>
+      <div class="now-meta-row">
+        <div class="now-meta-item">
+          <div class="meta-label">目安時間</div>
+          <div class="meta-value" id="nowMinutes">-</div>
+        </div>
+        <div class="now-meta-item">
+          <div class="meta-label">ボール</div>
+          <div class="meta-value" id="nowBall">-</div>
+        </div>
+        <div class="now-meta-item">
+          <div class="meta-label">締切</div>
+          <div class="meta-value" id="nowDeadline">-</div>
+        </div>
+      </div>
+      <div class="now-actions">
+        <button class="act-btn act-done" onclick="completeCurrentStep()">✓ 完了</button>
+        <button class="act-btn act-pass" onclick="passCurrentStep()">⇢ 渡した</button>
+        <button class="act-btn act-skip" onclick="skipCurrentStep()">後回し</button>
+      </div>
+    </div>
+
+    <!-- All Done Zone -->
+    <div class="all-done-zone" id="allDoneZone">
+      <div class="all-done-icon">🎉</div>
+      <div class="all-done-title">全部終わった！</div>
+      <div class="all-done-sub">今日の自分ボールのタスクはすべて完了。<br>お疲れさまでした！</div>
+      <button class="empty-btn" onclick="switchTab('add')" style="margin-top:12px">＋ 新しいタスクを追加</button>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-bar-wrap" id="progressWrap">
+      <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+      <div class="prog-label" id="progLabel">0 / 0 完了</div>
+    </div>
+
+    <!-- Tree -->
+    <div id="treeContainer"></div>
+  </div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- SCREEN 2: 追加画面 (ADD / DECOMPOSE) -->
+<!-- ============================================================ -->
+<div class="screen" id="screen-add">
+
+  <!-- Step Indicator -->
+  <div class="steps-indicator">
+    <div class="step-ind">
+      <div class="step-ind-num active" id="sn1">1</div>
+      <div class="step-ind-label active" id="sl1">入力</div>
+    </div>
+    <div class="step-ind-line"></div>
+    <div class="step-ind">
+      <div class="step-ind-num inactive" id="sn2">2</div>
+      <div class="step-ind-label" id="sl2">確認・修正</div>
+    </div>
+    <div class="step-ind-line"></div>
+    <div class="step-ind">
+      <div class="step-ind-num inactive" id="sn3">3</div>
+      <div class="step-ind-label" id="sl3">登録</div>
+    </div>
+  </div>
+
+  <!-- PHASE 1: INPUT -->
+  <div class="input-zone" id="phase1">
+    <div class="input-hint">
+      <strong>💡 どんな入力でもOK</strong>
+      思いついたまま雑に書いてください。AIが自動で分解・整理します。
+    </div>
+    <div class="examples">
+      <div class="example-chip" onclick="fillExample(this)">
+        <div class="chip-label">例 1</div>
+        来週の月曜にプレゼンがある。資料を作って上司に確認してもらわないといけない
+      </div>
+      <div class="example-chip" onclick="fillExample(this)">
+        <div class="chip-label">例 2</div>
+        田中さんへのメール返信、歯医者の予約、山田さんから返事待ち
+      </div>
+      <div class="example-chip" onclick="fillExample(this)">
+        <div class="chip-label">例 3</div>
+        引越し準備しなきゃ
+      </div>
+    </div>
+    <textarea id="taskInput" placeholder="例：来週のプレゼン資料を作って、上司に確認してもらう必要がある。あと田中さんへのメールも返してない。" rows="4"></textarea>
+    <div class="deadline-row">
+      <div class="deadline-label">📅 締切（任意）</div>
+      <input type="date" id="deadline" />
+    </div>
+    <div class="error-msg" id="errorMsg">タスクを入力してください</div>
+    <button class="decompose-btn" id="decomposeBtn" onclick="startDecompose()">
+      <span>✦</span> AIで自動分解する
+    </button>
+  </div>
+
+  <!-- AI THINKING -->
+  <div class="ai-thinking" id="aiThinking">
+    <div class="thinking-dots">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="thinking-text">AIがタスクを分析中...</div>
+    <div class="thinking-step" id="thinkingStep">タスクを抽出しています</div>
+  </div>
+
+  <!-- PHASE 2: REVIEW -->
+  <div class="review-zone" id="phase2">
+    <div class="review-header">
+      <div class="review-title">分解結果を確認・修正</div>
+      <div class="edit-hint">タップで編集できます</div>
+    </div>
+    <div id="taskTree"></div>
+    <div class="action-row">
+      <button class="action-btn btn-primary" id="registerBtn">✓ これで登録する</button>
+      <button class="action-btn btn-secondary" onclick="backToInput()">← やり直す</button>
+    </div>
+  </div>
+
+  <!-- PHASE 3: DONE -->
+  <div class="done-zone" id="phase3">
+    <div class="done-icon">✓</div>
+    <div class="done-title">登録完了！</div>
+    <div class="done-sub">タスクが登録されました。<br>今やることに集中しましょう。</div>
+    <div class="done-stats" id="doneStats"></div>
+    <button class="go-focus-btn" onclick="switchTab('focus')">▶ 今やることを見る</button>
+    <button class="start-btn" onclick="resetDecompose()">+ 続けてタスクを追加する</button>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- ============================================================ -->
+<!-- SCREEN 3: 設定画面 (SETTINGS) -->
+<!-- ============================================================ -->
+<div class="screen" id="screen-settings">
+
+  <div class="settings-section">
+    <div class="settings-title">API設定</div>
+    <div class="settings-label">Anthropic APIキー</div>
+    <div class="settings-desc">
+      AI分解機能を使うにはClaude APIキーが必要です。<br>
+      キーはこの端末のブラウザにのみ保存され、外部に送信されません。
+    </div>
+    <input type="password" class="settings-input" id="apiKeyInput" placeholder="sk-ant-api03-..." autocomplete="off">
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <button class="settings-btn settings-btn-primary" id="saveApiKeyBtn">保存する</button>
+      <div id="apiKeyStatus"></div>
+    </div>
+    <div class="api-guide">
+      <strong>APIキーの取得方法：</strong>
+      <ol>
+        <li><a class="settings-link" href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a> にアクセス</li>
+        <li>アカウントを作成 / ログイン</li>
+        <li>「API Keys」→「Create Key」でキーを作成</li>
+        <li>作成されたキー（sk-ant-...）をコピーして上に貼り付け</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-title">データ管理</div>
+    <div class="settings-desc">
+      タスクデータはこの端末のブラウザに保存されています。
+    </div>
+    <div id="dataStats" style="font-size:12px; color:var(--text); margin-bottom:10px"></div>
+    <button class="settings-btn settings-btn-danger" id="clearDataBtn">全データを削除</button>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-title">バージョン情報</div>
+    <div class="settings-desc">
+      FOCUS v1.2<br>
+      ADHDユーザーのためのタスク管理アプリ
+    </div>
+  </div>
+
+</div>
+
+<!-- TAB NAV -->
+<nav class="tab-nav">
+  <button class="tab-btn active" id="tab-focus" onclick="switchTab('focus')">
+    <span class="tab-icon">◎</span>
+    <span class="tab-label">今やること</span>
+  </button>
+  <button class="tab-btn" id="tab-add" onclick="switchTab('add')">
+    <span class="tab-icon">＋</span>
+    <span class="tab-label">追加</span>
+  </button>
+  <button class="tab-btn" id="tab-settings" onclick="switchTab('settings')">
+    <span class="tab-icon">⚙</span>
+    <span class="tab-label">設定</span>
+  </button>
+</nav>
+
+<script>
+// ============================================================
+// FOCUS 統合版 v1.1 - メインスクリプト（クリーンアップ済み）
+// ============================================================
+// ① すべてのデータ操作はloadData/saveData経由（直接storageを触らない）
+// ② 画面の更新はrenderFocusScreen()を呼べば最新状態に再描画
+// ③ window.storage API → localStorage → インメモリ の3段フォールバック
+// ④ console.assertは禁止。代わりにカスタムassert関数を使用
+// ============================================================
+
+// ── 定数 ──
+var STORAGE_KEY = 'focus_app_data';
+var APIKEY_STORAGE_KEY = 'focus_api_key';
+
+// ── APIキーの取得 ──
+// ① localStorageから取得を試みる
+// ② 取得できない場合は空文字を返す（Artifact環境ではキー不要）
+// 受け取るもの：なし
+// 返すもの：string（APIキーまたは空文字）
+function getApiKey() {
+  try {
+    return localStorage.getItem(APIKEY_STORAGE_KEY) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+// ── APIキーの保存 ──
+// 受け取るもの：string（APIキー）
+// 返すもの：boolean（成功/失敗）
+function saveApiKey(key) {
+  try {
+    if (key) {
+      localStorage.setItem(APIKEY_STORAGE_KEY, key);
+    } else {
+      localStorage.removeItem(APIKEY_STORAGE_KEY);
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// ── Artifact環境かどうかの判定 ──
+// window.storageが存在する = claude.aiのArtifact環境（APIキー自動付与）
+function isArtifactEnv() {
+  return !!(window.storage && typeof window.storage.get === 'function');
+}
+
+// ── カスタムassert関数（ファイル先頭に一度だけ定義） ──
+// console.assertはArtifact環境に存在しないため、throwベースで自作する
+// conditionがfalseのとき処理を強制停止させる
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error('アサーション失敗：' + message);
+  }
+}
+
+// ── ID生成 ──
+// タスクとステップに一意IDを振る。timestampとrandomの組み合わせで衝突を防ぐ
+// 受け取るもの：prefix（string, 例："task"）
+// 返すもの：string（例："task_1710000000000_a3f5k"）
+function generateId(prefix) {
+  if (!prefix) throw new Error('generateId: prefixが必要です');
+  return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+// ── インメモリフォールバック用 ──
+var _inMemoryData = null;
+
+// ── データ読み込み（async） ──
+// localStorage → window.storage(Artifact環境) → インメモリの3段フォールバック
+// 受け取るもの：なし
+// 返すもの：Promise<{ tasks: Task[], updatedAt: string }>
+async function loadData() {
+  var EMPTY = { tasks: [], updatedAt: new Date().toISOString() };
+
+  // ① localStorage（通常のブラウザ環境）
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      var parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.tasks)) return parsed;
+    }
+  } catch (e) { /* localStorage使用不可 → 次へ */ }
+
+  // ② window.storage API（Artifact環境の永続ストレージ）
+  if (window.storage && typeof window.storage.get === 'function') {
+    try {
+      var result = await window.storage.get(STORAGE_KEY);
+      if (result && result.value) {
+        var parsed2 = JSON.parse(result.value);
+        if (parsed2 && Array.isArray(parsed2.tasks)) return parsed2;
+      }
+    } catch (e) { /* キー未存在 → 正常 */ }
+  }
+
+  // ③ インメモリフォールバック
+  if (_inMemoryData) return JSON.parse(JSON.stringify(_inMemoryData));
+  return EMPTY;
+}
+
+// ── データ保存（async） ──
+// localStorage → window.storage → インメモリの3段フォールバック
+// 受け取るもの：{ tasks: Task[], updatedAt: string }
+// 返すもの：Promise<boolean>
+async function saveData(data) {
+  if (!data || !Array.isArray(data.tasks)) return false;
+  data.updatedAt = new Date().toISOString();
+
+  // 常にインメモリにもコピー保持
+  _inMemoryData = JSON.parse(JSON.stringify(data));
+
+  // ① localStorage（通常のブラウザ環境）
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    updateHeaderBadge(data);
+    return true;
+  } catch (e) { /* localStorage使用不可 → 次へ */ }
+
+  // ② window.storage API（Artifact環境）
+  if (window.storage && typeof window.storage.set === 'function') {
+    try {
+      await window.storage.set(STORAGE_KEY, JSON.stringify(data));
+      updateHeaderBadge(data);
+      return true;
+    } catch (e) { /* 失敗 → 次へ */ }
+  }
+
+  // ③ インメモリのみでも成功扱い
+  updateHeaderBadge(data);
+  return true;
+}
+
+// ── ヘッダー更新 ──
+function updateHeaderBadge(data) {
+  var count = 0;
+  for (var i = 0; i < data.tasks.length; i++) {
+    if (data.tasks[i].status === 'active') count++;
+  }
+  document.getElementById('headerBadge').textContent = count + ' タスク';
+}
+
+function updateHeaderDate() {
+  var now = new Date();
+  var days = ['日','月','火','水','木','金','土'];
+  document.getElementById('headerDate').textContent =
+    (now.getMonth()+1) + '月' + now.getDate() + '日（' + days[now.getDay()] + '）';
+}
+
+// ── Toast通知 ──
+function showToast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(function() { el.classList.remove('show'); }, 2000);
+}
+
+// ============================================================
+// タブ切替
+// ============================================================
+
+async function switchTab(tab) {
+  if (!tab) return;
+
+  document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+
+  var screenEl = document.getElementById('screen-' + tab);
+  var tabEl = document.getElementById('tab-' + tab);
+  if (screenEl) screenEl.classList.add('active');
+  if (tabEl) tabEl.classList.add('active');
+
+  if (tab === 'focus') {
+    await renderFocusScreen();
+  }
+  if (tab === 'settings') {
+    updateSettingsScreen();
+  }
+}
+
+// ============================================================
+// 分解画面のロジック
+// ============================================================
+
+var parsedTasks = [];
+
+function fillExample(el) {
+  var text = el.innerText.replace(/例 \d\n/, '').trim();
+  document.getElementById('taskInput').value = text;
+}
+
+function setDecomposeStep(active) {
+  [1,2,3].forEach(function(i) {
+    var num = document.getElementById('sn'+i);
+    var label = document.getElementById('sl'+i);
+    if (i < active) {
+      num.className = 'step-ind-num done';
+      num.textContent = '✓';
+      label.className = 'step-ind-label';
+    } else if (i === active) {
+      num.className = 'step-ind-num active';
+      num.textContent = i;
+      label.className = 'step-ind-label active';
+    } else {
+      num.className = 'step-ind-num inactive';
+      num.textContent = i;
+      label.className = 'step-ind-label';
+    }
+  });
+}
+
+// ── AI分解実行 ──
+async function startDecompose() {
+  var input = document.getElementById('taskInput').value.trim();
+  var errorMsg = document.getElementById('errorMsg');
+
+  if (!input) {
+    errorMsg.textContent = 'タスクを入力してください';
+    errorMsg.style.display = 'block';
+    return;
+  }
+  errorMsg.style.display = 'none';
+
+  var deadline = document.getElementById('deadline').value;
+  var deadlineText = deadline ? '締切：' + deadline : '締切：未設定';
+
+  // Thinking表示
+  document.getElementById('phase1').style.display = 'none';
+  document.getElementById('aiThinking').style.display = 'flex';
+  setDecomposeStep(2);
+
+  var thinkingMessages = ['タスクを抽出しています...', 'ステップに分解しています...', '優先順位を判定しています...', 'ボールを確認しています...'];
+  var messageIndex = 0;
+  var stepEl = document.getElementById('thinkingStep');
+  stepEl.style.opacity = '1';
+  var stepInterval = setInterval(function() {
+    messageIndex = (messageIndex + 1) % thinkingMessages.length;
+    stepEl.style.opacity = '0';
+    setTimeout(function() {
+      stepEl.textContent = thinkingMessages[messageIndex];
+      stepEl.style.opacity = '1';
+    }, 300);
+  }, 1200);
+
+  try {
+    var promptText = 'あなたはADHDのユーザーを助けるタスク管理AIです。\n\n'
+      + '以下の入力からタスクを抽出し、各タスクを5〜15分の小さなステップに分解してください。\n'
+      + deadlineText + '\n\n'
+      + 'ユーザーの入力：\n「' + input + '」\n\n'
+      + '以下のJSON形式のみで返答してください。前置きや説明は不要です。\n'
+      + 'JSONのみを返し、マークダウンのコードブロックで囲まないでください：\n\n'
+      + '{"tasks":[{"title":"親タスク名","emoji":"絵文字1つ","deadline":"締切の説明","steps":[{"text":"具体的な行動","ball":"自分","minutes":10}]}]}\n\n'
+      + 'ballの値は "自分" または "相手：名前" のどちらかです。\n\n'
+      + 'ルール：\n'
+      + '- ステップは必ず具体的な行動にする\n'
+      + '- ballが相手の場合は誰のボールか明記（例："相手：上司"）\n'
+      + '- 1ステップは5〜20分以内\n'
+      + '- 最大6ステップまで';
+
+    // ── APIキーの取得 ──
+    // Artifact環境（claude.ai内）ではキー不要（自動付与）
+    // 外部環境では設定画面で保存したキーを使う
+    var apiKey = getApiKey();
+    var headers = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['x-api-key'] = apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    } else if (!isArtifactEnv()) {
+      // 外部環境でAPIキー未設定 → エラー
+      clearInterval(stepInterval);
+      document.getElementById('aiThinking').style.display = 'none';
+      document.getElementById('phase1').style.display = 'flex';
+      setDecomposeStep(1);
+      showToast('⚙ 設定画面でAPIキーを登録してください');
+      switchTab('settings');
+      return;
+    }
+
+    var response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: promptText }]
+      })
+    });
+
+    clearInterval(stepInterval);
+
+    if (!response.ok) {
+      var errorBody = '';
+      try { errorBody = await response.text(); } catch(e2) {}
+      throw new Error('API応答エラー (' + response.status + ')');
+    }
+
+    var data = await response.json();
+    if (!data.content || !Array.isArray(data.content) || data.content.length === 0) {
+      throw new Error('APIの応答が空です');
+    }
+
+    // テキストブロックを探す
+    var textBlock = null;
+    for (var i = 0; i < data.content.length; i++) {
+      if (data.content[i].type === 'text') { textBlock = data.content[i]; break; }
+    }
+    if (!textBlock || !textBlock.text) {
+      throw new Error('APIの応答にテキストがありません');
+    }
+
+    // JSON抽出（コードフェンス除去 → 最外側の{}をマッチ）
+    var rawText = textBlock.text;
+    rawText = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+    var jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('AIの応答からJSONを抽出できませんでした');
+
+    var parsed = JSON.parse(jsonMatch[0]);
+    if (!parsed.tasks || !Array.isArray(parsed.tasks) || parsed.tasks.length === 0) {
+      throw new Error('パース結果にtasks配列がありません');
+    }
+
+    // デフォルト値で補完
+    for (var t = 0; t < parsed.tasks.length; t++) {
+      var task = parsed.tasks[t];
+      if (!task.title) task.title = '無題のタスク';
+      if (!task.emoji) task.emoji = '📌';
+      if (!task.deadline) task.deadline = '未設定';
+      if (!Array.isArray(task.steps)) task.steps = [];
+      for (var s = 0; s < task.steps.length; s++) {
+        if (!task.steps[s].text) task.steps[s].text = '（内容未設定）';
+        if (!task.steps[s].ball) task.steps[s].ball = '自分';
+        if (typeof task.steps[s].minutes !== 'number') task.steps[s].minutes = 10;
+      }
+    }
+
+    parsedTasks = parsed.tasks;
+
+    // Review画面表示
+    document.getElementById('aiThinking').style.display = 'none';
+    renderReview();
+    document.getElementById('phase2').style.display = 'flex';
+
+  } catch (e) {
+    clearInterval(stepInterval);
+    document.getElementById('aiThinking').style.display = 'none';
+    document.getElementById('phase1').style.display = 'flex';
+    errorMsg.textContent = 'AI分解に失敗しました：' + (e.message || String(e));
+    errorMsg.style.display = 'block';
+    setDecomposeStep(1);
+  }
+}
+
+// ── 分解結果のレビュー描画 ──
+function renderReview() {
+  var tree = document.getElementById('taskTree');
+  tree.innerHTML = '';
+
+  for (var ti = 0; ti < parsedTasks.length; ti++) {
+    var task = parsedTasks[ti];
+    var totalMin = 0;
+    for (var m = 0; m < task.steps.length; m++) totalMin += (task.steps[m].minutes || 0);
+
+    var div = document.createElement('div');
+    div.className = 'review-parent';
+
+    var stepsHtml = '';
+    for (var si = 0; si < task.steps.length; si++) {
+      var step = task.steps[si];
+      var isSelf = step.ball === '自分';
+      stepsHtml += '<div class="step-item">'
+        + '<div class="step-left"><div class="s-num ' + (isSelf ? 's-self' : 's-wait') + '">' + (si+1) + '</div></div>'
+        + '<div class="step-content">'
+        + '<input class="step-editable" value="' + step.text.replace(/"/g, '&quot;') + '" data-ti="' + ti + '" data-si="' + si + '" />'
+        + '<div class="step-detail">'
+        + '<span class="ball-badge ' + (isSelf ? 'ball-self' : 'ball-wait') + '">' + (isSelf ? '🟢 自分' : '⏳ ' + step.ball) + '</span>'
+        + '<span class="time-badge">約' + step.minutes + '分</span>'
+        + '</div></div>'
+        + '<div class="step-actions">'
+        + '<div class="mini-btn" data-action="up" data-ti="' + ti + '" data-si="' + si + '" title="上へ">↑</div>'
+        + '<div class="mini-btn del" data-action="del" data-ti="' + ti + '" data-si="' + si + '" title="削除">×</div>'
+        + '<div class="mini-btn" data-action="down" data-ti="' + ti + '" data-si="' + si + '" title="下へ">↓</div>'
+        + '</div></div>';
+    }
+
+    div.innerHTML = '<div class="review-parent-header">'
+      + '<div class="rp-icon">' + (task.emoji || '📌') + '</div>'
+      + '<div class="rp-info"><div class="rp-title">' + task.title + '</div>'
+      + '<div class="rp-meta">' + task.steps.length + 'ステップ・合計約' + totalMin + '分・' + task.deadline + '</div></div></div>'
+      + '<div class="step-list-review">' + stepsHtml + '</div>'
+      + '<div class="add-step-btn" data-action="add" data-ti="' + ti + '">＋ ステップを追加する</div>';
+
+    tree.appendChild(div);
+  }
+
+  // イベント委譲でボタンを処理
+  tree.onclick = function(e) {
+    var target = e.target.closest('[data-action]');
+    if (!target) return;
+    var action = target.getAttribute('data-action');
+    var ti = parseInt(target.getAttribute('data-ti'));
+    var si = parseInt(target.getAttribute('data-si'));
+
+    if (action === 'up' && si > 0) {
+      var tmp = parsedTasks[ti].steps[si];
+      parsedTasks[ti].steps[si] = parsedTasks[ti].steps[si-1];
+      parsedTasks[ti].steps[si-1] = tmp;
+      renderReview();
+    } else if (action === 'down' && si < parsedTasks[ti].steps.length - 1) {
+      var tmp2 = parsedTasks[ti].steps[si];
+      parsedTasks[ti].steps[si] = parsedTasks[ti].steps[si+1];
+      parsedTasks[ti].steps[si+1] = tmp2;
+      renderReview();
+    } else if (action === 'del') {
+      parsedTasks[ti].steps.splice(si, 1);
+      renderReview();
+    } else if (action === 'add') {
+      parsedTasks[ti].steps.push({ text: '新しいステップ', ball: '自分', minutes: 10 });
+      renderReview();
+    }
+  };
+
+  // テキスト編集の反映
+  tree.onchange = function(e) {
+    if (e.target.classList.contains('step-editable')) {
+      var ti = parseInt(e.target.getAttribute('data-ti'));
+      var si = parseInt(e.target.getAttribute('data-si'));
+      parsedTasks[ti].steps[si].text = e.target.value;
+    }
+  };
+}
+
+// ── タスク登録（保存） ──
+// parsedTasksをフォーマット変換してストレージに追記保存する
+async function registerTasks() {
+  if (!parsedTasks || parsedTasks.length === 0) {
+    showToast('❌ 登録するタスクがありません');
+    return;
+  }
+
+  // Step 1: 既存データ読み込み
+  var data;
+  try {
+    data = await loadData();
+  } catch (e) {
+    showToast('❌ データ読み込み失敗');
+    return;
+  }
+
+  // Step 2: データ変換
+  var newTasks;
+  try {
+    newTasks = [];
+    for (var ti = 0; ti < parsedTasks.length; ti++) {
+      var task = parsedTasks[ti];
+      var taskId = generateId('task');
+      var steps = [];
+
+      for (var si = 0; si < (task.steps || []).length; si++) {
+        var step = task.steps[si];
+        steps.push({
+          id: generateId('step'),
+          text: step.text || '未設定',
+          ball: step.ball || '自分',
+          minutes: (typeof step.minutes === 'number') ? step.minutes : 10,
+          status: 'todo'
+        });
+      }
+
+      // 最初の自分ボールステップをcurrentにする
+      for (var i = 0; i < steps.length; i++) {
+        if (steps[i].ball === '自分') { steps[i].status = 'current'; break; }
+      }
+      // 相手ボールのステップをwaitingにする
+      for (var j = 0; j < steps.length; j++) {
+        if (steps[j].ball !== '自分' && steps[j].status === 'todo') {
+          steps[j].status = 'waiting';
+        }
+      }
+
+      newTasks.push({
+        id: taskId,
+        title: task.title || '無題',
+        emoji: task.emoji || '📌',
+        deadline: task.deadline || '未設定',
+        createdAt: new Date().toISOString(),
+        status: 'active',
+        steps: steps
+      });
+    }
+  } catch (e) {
+    showToast('❌ データ変換失敗：' + (e.message || String(e)));
+    return;
+  }
+
+  // Step 3: 保存
+  try {
+    data.tasks = data.tasks.concat(newTasks);
+    await saveData(data);
+  } catch (e) {
+    showToast('❌ 保存失敗：' + (e.message || String(e)));
+    return;
+  }
+
+  // Step 4: 統計表示＋画面遷移
+  var totalSteps = 0, selfSteps = 0, totalMin = 0;
+  for (var t = 0; t < newTasks.length; t++) {
+    for (var s = 0; s < newTasks[t].steps.length; s++) {
+      totalSteps++;
+      totalMin += (newTasks[t].steps[s].minutes || 0);
+      if (newTasks[t].steps[s].ball === '自分') selfSteps++;
+    }
+  }
+
+  document.getElementById('phase2').style.display = 'none';
+  setDecomposeStep(3);
+
+  document.getElementById('doneStats').innerHTML =
+    '<div class="stat"><div class="stat-num">' + newTasks.length + '</div><div class="stat-label">タスク</div></div>' +
+    '<div class="stat"><div class="stat-num">' + selfSteps + '</div><div class="stat-label">自分ボール</div></div>' +
+    '<div class="stat"><div class="stat-num">' + totalMin + '</div><div class="stat-label">合計分</div></div>';
+
+  document.getElementById('phase3').style.display = 'flex';
+  showToast('✓ タスクを登録しました');
+}
+
+function backToInput() {
+  document.getElementById('phase2').style.display = 'none';
+  document.getElementById('phase1').style.display = 'flex';
+  setDecomposeStep(1);
+}
+
+function resetDecompose() {
+  document.getElementById('phase3').style.display = 'none';
+  document.getElementById('taskInput').value = '';
+  document.getElementById('deadline').value = '';
+  document.getElementById('phase1').style.display = 'flex';
+  parsedTasks = [];
+  setDecomposeStep(1);
+}
+
+// ============================================================
+// 実行画面のロジック
+// ============================================================
+
+// ── 「今やること」を特定する ──
+// 全タスクのstepsを走査し、status==="current"の最初のものを返す
+// 受け取るもの：Task[]
+// 返すもの：{ task, step, stepIndex } | null
+function findCurrentStep(tasks) {
+  if (!tasks) return null;
+  for (var ti = 0; ti < tasks.length; ti++) {
+    if (tasks[ti].status !== 'active') continue;
+    for (var si = 0; si < tasks[ti].steps.length; si++) {
+      if (tasks[ti].steps[si].status === 'current') {
+        return { task: tasks[ti], step: tasks[ti].steps[si], stepIndex: si };
+      }
+    }
+  }
+  return null;
+}
+
+// ── 次の自分ボールステップに進む ──
+// 現在のステップを完了にし、次の自分ボールを探してcurrentにする
+// 受け取るもの：data, taskId, stepId
+// 返すもの：更新後のdata
+function advanceToNextStep(data, taskId, stepId) {
+  if (!data || !taskId) return data;
+
+  var task = null;
+  for (var i = 0; i < data.tasks.length; i++) {
+    if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
+  }
+  if (!task) return data;
+
+  var stepIdx = -1;
+  for (var j = 0; j < task.steps.length; j++) {
+    if (task.steps[j].id === stepId) { stepIdx = j; break; }
+  }
+  if (stepIdx < 0) return data;
+
+  // 現在のステップを完了に
+  task.steps[stepIdx].status = 'done';
+
+  // 同タスク内で次の自分ボールtodoを探す
+  var foundNext = false;
+  for (var k = stepIdx + 1; k < task.steps.length; k++) {
+    if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
+      task.steps[k].status = 'current';
+      foundNext = true;
+      break;
+    }
+  }
+
+  // 同タスク内になければタスク完了チェック→他タスクから探す
+  if (!foundNext) {
+    var hasRemaining = false;
+    for (var m = 0; m < task.steps.length; m++) {
+      if (task.steps[m].status === 'todo' || task.steps[m].status === 'current') {
+        hasRemaining = true; break;
+      }
+    }
+    if (!hasRemaining) {
+      var hasWaiting = false;
+      for (var n = 0; n < task.steps.length; n++) {
+        if (task.steps[n].status === 'waiting') { hasWaiting = true; break; }
+      }
+      if (!hasWaiting) task.status = 'done';
+    }
+
+    // 他タスクから探す
+    for (var oi = 0; oi < data.tasks.length; oi++) {
+      if (foundNext) break;
+      var otherTask = data.tasks[oi];
+      if (otherTask.status !== 'active' || otherTask.id === taskId) continue;
+      for (var os = 0; os < otherTask.steps.length; os++) {
+        if (otherTask.steps[os].ball === '自分' && otherTask.steps[os].status === 'todo') {
+          otherTask.steps[os].status = 'current';
+          foundNext = true;
+          break;
+        }
+      }
+    }
+  }
+
+  return data;
+}
+
+// ── 完了ボタン ──
+async function completeCurrentStep() {
+  try {
+    var data = await loadData();
+    var current = findCurrentStep(data.tasks);
+    if (!current) return;
+    var updated = advanceToNextStep(data, current.task.id, current.step.id);
+    await saveData(updated);
+    showToast('✓ 完了！');
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ エラー：' + (e.message || String(e)));
+  }
+}
+
+// ── 渡したボタン ──
+async function passCurrentStep() {
+  try {
+    var data = await loadData();
+    var current = findCurrentStep(data.tasks);
+    if (!current) return;
+
+    // 対象のステップをwaitingに
+    var task = null;
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id === current.task.id) { task = data.tasks[i]; break; }
+    }
+    var step = null;
+    for (var j = 0; j < task.steps.length; j++) {
+      if (task.steps[j].id === current.step.id) { step = task.steps[j]; break; }
+    }
+    step.status = 'waiting';
+    step.ball = '相手';
+
+    // 次の自分ボールを探す
+    var foundNext = false;
+    for (var k = 0; k < task.steps.length; k++) {
+      if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
+        task.steps[k].status = 'current';
+        foundNext = true;
+        break;
+      }
+    }
+    if (!foundNext) {
+      for (var oi = 0; oi < data.tasks.length; oi++) {
+        if (foundNext) break;
+        if (data.tasks[oi].status !== 'active' || data.tasks[oi].id === task.id) continue;
+        for (var os = 0; os < data.tasks[oi].steps.length; os++) {
+          if (data.tasks[oi].steps[os].ball === '自分' && data.tasks[oi].steps[os].status === 'todo') {
+            data.tasks[oi].steps[os].status = 'current';
+            foundNext = true;
+            break;
+          }
+        }
+      }
+    }
+
+    await saveData(data);
+    showToast('⇢ 相手に渡しました');
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ エラー：' + (e.message || String(e)));
+  }
+}
+
+// ── 後回しボタン ──
+async function skipCurrentStep() {
+  try {
+    var data = await loadData();
+    var current = findCurrentStep(data.tasks);
+    if (!current) return;
+
+    var task = null;
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id === current.task.id) { task = data.tasks[i]; break; }
+    }
+    var stepIdx = -1;
+    for (var j = 0; j < task.steps.length; j++) {
+      if (task.steps[j].id === current.step.id) { stepIdx = j; break; }
+    }
+    task.steps[stepIdx].status = 'todo';
+
+    // 次を探す
+    var foundNext = false;
+    for (var k = stepIdx + 1; k < task.steps.length; k++) {
+      if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
+        task.steps[k].status = 'current';
+        foundNext = true;
+        break;
+      }
+    }
+    if (!foundNext) {
+      for (var oi = 0; oi < data.tasks.length; oi++) {
+        if (foundNext) break;
+        if (data.tasks[oi].status !== 'active' || data.tasks[oi].id === task.id) continue;
+        for (var os = 0; os < data.tasks[oi].steps.length; os++) {
+          if (data.tasks[oi].steps[os].ball === '自分' && data.tasks[oi].steps[os].status === 'todo') {
+            data.tasks[oi].steps[os].status = 'current';
+            foundNext = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!foundNext) {
+      task.steps[stepIdx].status = 'current';
+    }
+
+    await saveData(data);
+    showToast('↩ 後回しにしました');
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ エラー：' + (e.message || String(e)));
+  }
+}
+
+// ── タスク削除 ──
+// Artifact環境ではconfirm()が使えないため、直接削除する
+async function deleteTask(taskId) {
+  try {
+    var data = await loadData();
+    var filtered = [];
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id !== taskId) filtered.push(data.tasks[i]);
+    }
+    data.tasks = filtered;
+    await saveData(data);
+    showToast('🗑 削除しました');
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ 削除失敗');
+  }
+}
+
+// ── ツリー開閉 ──
+function toggleTree(panelId, chevId) {
+  var panel = document.getElementById(panelId);
+  var chev = document.getElementById(chevId);
+  if (!panel) return;
+  var isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
+  panel.style.maxHeight = isOpen ? '0px' : '500px';
+  if (chev) chev.classList.toggle('open', !isOpen);
+}
+
+// ============================================================
+// 実行画面の描画
+// ============================================================
+
+async function renderFocusScreen() {
+  var data = await loadData();
+  var tasks = data.tasks;
+  updateHeaderBadge(data);
+
+  var emptyEl = document.getElementById('emptyState');
+  var focusEl = document.getElementById('focusContent');
+
+  if (tasks.length === 0) {
+    emptyEl.style.display = 'flex';
+    focusEl.style.display = 'none';
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  focusEl.style.display = 'block';
+
+  // ── 「今やること」の特定 ──
+  var current = findCurrentStep(tasks);
+  var nowZone = document.getElementById('nowZone');
+  var allDoneZone = document.getElementById('allDoneZone');
+
+  if (current) {
+    nowZone.style.display = 'block';
+    allDoneZone.style.display = 'none';
+
+    document.getElementById('nowTaskName').textContent = current.step.text;
+    document.getElementById('nowParentInfo').textContent =
+      current.task.emoji + ' ' + current.task.title + ' › ステップ ' + (current.stepIndex + 1) + '/' + current.task.steps.length;
+    document.getElementById('nowMinutes').textContent = current.step.minutes + '分';
+
+    var ballEl = document.getElementById('nowBall');
+    ballEl.textContent = current.step.ball;
+    ballEl.className = 'meta-value' + (current.step.ball === '自分' ? ' green' : ' orange');
+
+    document.getElementById('nowDeadline').textContent = current.task.deadline;
+  } else {
+    nowZone.style.display = 'none';
+    var hasActive = false;
+    for (var i = 0; i < tasks.length; i++) {
+      if (tasks[i].status === 'active') { hasActive = true; break; }
+    }
+    allDoneZone.style.display = 'flex';
+    if (hasActive) {
+      document.querySelector('.all-done-title').textContent = '自分ボール完了！';
+      document.querySelector('.all-done-sub').textContent = '相手からの返事を待ちましょう。';
+    } else {
+      document.querySelector('.all-done-title').textContent = '全部終わった！';
+      document.querySelector('.all-done-sub').textContent = '今日のタスクはすべて完了。お疲れさまでした！';
+    }
+  }
+
+  // ── プログレスバー ──
+  var totalSteps = 0, doneSteps = 0;
+  for (var pi = 0; pi < tasks.length; pi++) {
+    for (var ps = 0; ps < tasks[pi].steps.length; ps++) {
+      totalSteps++;
+      if (tasks[pi].steps[ps].status === 'done') doneSteps++;
+    }
+  }
+  var pct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+  document.getElementById('progFill').style.width = pct + '%';
+  document.getElementById('progLabel').textContent = doneSteps + ' / ' + totalSteps + ' 完了';
+
+  // ── ツリー描画 ──
+  var container = document.getElementById('treeContainer');
+  container.innerHTML = '';
+
+  var activeTasks = [], doneTasks = [], waitingItems = [];
+  for (var fi = 0; fi < tasks.length; fi++) {
+    if (tasks[fi].status === 'active') activeTasks.push(tasks[fi]);
+    else if (tasks[fi].status === 'done') doneTasks.push(tasks[fi]);
+  }
+
+  if (activeTasks.length > 0) {
+    var treeLabel = document.createElement('div');
+    treeLabel.className = 'tree-section-label';
+    treeLabel.textContent = 'タスク全体';
+    container.appendChild(treeLabel);
+
+    var tree = document.createElement('div');
+    tree.className = 'tree';
+
+    for (var ai = 0; ai < activeTasks.length; ai++) {
+      var aTask = activeTasks[ai];
+      var isCurrentTask = current && current.task.id === aTask.id;
+      var panelId = 'panel_' + ai;
+      var chevId = 'chev_' + ai;
+      var doneCount = 0;
+      for (var dc = 0; dc < aTask.steps.length; dc++) {
+        if (aTask.steps[dc].status === 'done') doneCount++;
+        if (aTask.steps[dc].status === 'waiting') {
+          waitingItems.push({ taskTitle: aTask.title, step: aTask.steps[dc] });
+        }
+      }
+
+      var parentDiv = document.createElement('div');
+      var parentRow = document.createElement('div');
+      parentRow.className = 'parent-row' + (isCurrentTask ? ' is-active' : '');
+      parentRow.setAttribute('data-panel', panelId);
+      parentRow.setAttribute('data-chev', chevId);
+      parentRow.onclick = function() {
+        var pid = this.getAttribute('data-panel');
+        var cid = this.getAttribute('data-chev');
+        toggleTree(pid, cid);
+      };
+
+      parentRow.innerHTML =
+        '<div class="parent-icon pi-green">' + aTask.emoji + '</div>'
+        + '<div class="parent-info">'
+        + '<div class="parent-title' + (isCurrentTask ? ' now-active-text' : '') + '">' + aTask.title + '</div>'
+        + '<div class="parent-sub"><span>' + doneCount + '/' + aTask.steps.length + '完了</span><span>' + aTask.deadline + '</span></div>'
+        + '</div>'
+        + '<button class="delete-task-btn" data-delete-id="' + aTask.id + '" title="削除">🗑</button>'
+        + '<div class="chevron' + (isCurrentTask ? ' open' : '') + '" id="' + chevId + '">›</div>';
+
+      parentDiv.appendChild(parentRow);
+
+      var childWrap = document.createElement('div');
+      childWrap.className = 'children-wrap';
+      childWrap.id = panelId;
+      childWrap.style.maxHeight = isCurrentTask ? '500px' : '0px';
+
+      for (var ci = 0; ci < aTask.steps.length; ci++) {
+        var cStep = aTask.steps[ci];
+        var isCurrent = cStep.status === 'current';
+        var isDone = cStep.status === 'done';
+        var isWaiting = cStep.status === 'waiting';
+
+        var rowClass = 'step-row' + (isCurrent ? ' step-now' : '') + (isDone ? ' step-done-row' : '');
+        var snClass = 'sn' + (isCurrent ? ' sn-now' : isDone ? ' sn-done' : isWaiting ? ' sn-wait' : ' sn-next');
+        var textClass = 'step-text-tree' + (isCurrent ? ' t-now' : isDone ? ' t-done' : isWaiting ? ' t-wait' : '');
+
+        var rightContent = '';
+        if (isCurrent) rightContent = '<span class="badge b-now">今ここ</span>';
+        else if (isDone) rightContent = '<span class="badge b-done">✓</span>';
+        else if (isWaiting) rightContent = '<span class="badge b-wait">' + cStep.ball.replace('相手：','') + '</span>';
+        else rightContent = cStep.minutes + '分';
+
+        var row = document.createElement('div');
+        row.className = rowClass;
+        row.innerHTML =
+          '<div class="' + snClass + '">' + (isDone ? '✓' : (ci+1)) + '</div>'
+          + '<div class="' + textClass + '">' + cStep.text + '</div>'
+          + '<div class="step-right-tree">' + rightContent + '</div>';
+        childWrap.appendChild(row);
+      }
+
+      parentDiv.appendChild(childWrap);
+      tree.appendChild(parentDiv);
+    }
+
+    container.appendChild(tree);
+
+    // 削除ボタンのイベント委譲
+    tree.addEventListener('click', function(e) {
+      var deleteBtn = e.target.closest('[data-delete-id]');
+      if (deleteBtn) {
+        e.stopPropagation();
+        deleteTask(deleteBtn.getAttribute('data-delete-id'));
+      }
+    });
+  }
+
+  // ── 相手ボール待ち ──
+  if (waitingItems.length > 0) {
+    var divider = document.createElement('div');
+    divider.className = 'divider';
+    divider.textContent = '相手ボール待ち';
+    container.appendChild(divider);
+
+    for (var wi = 0; wi < waitingItems.length; wi++) {
+      var wRow = document.createElement('div');
+      wRow.className = 'wait-row';
+      wRow.innerHTML =
+        '<div class="wait-icon">👤</div>'
+        + '<div class="wait-info">'
+        + '<div class="wait-title">' + waitingItems[wi].step.text + '</div>'
+        + '<div class="wait-sub">⏳ ' + waitingItems[wi].taskTitle + '・' + waitingItems[wi].step.ball + '</div>'
+        + '</div>';
+      container.appendChild(wRow);
+    }
+  }
+
+  // ── 完了済み ──
+  if (doneTasks.length > 0) {
+    var divider2 = document.createElement('div');
+    divider2.className = 'divider';
+    divider2.textContent = '完了済み';
+    container.appendChild(divider2);
+
+    for (var di = 0; di < doneTasks.length; di++) {
+      var dRow = document.createElement('div');
+      dRow.innerHTML =
+        '<div class="parent-row" style="opacity:0.4">'
+        + '<div class="parent-icon pi-done">✓</div>'
+        + '<div class="parent-info">'
+        + '<div class="parent-title done-text">' + doneTasks[di].emoji + ' ' + doneTasks[di].title + '</div>'
+        + '<div class="parent-sub"><span class="badge b-done">完了</span></div>'
+        + '</div>'
+        + '<button class="delete-task-btn" data-delete-done="' + doneTasks[di].id + '" title="削除">🗑</button>'
+        + '</div>';
+      dRow.querySelector('[data-delete-done]').addEventListener('click', (function(id) {
+        return function(e) { e.stopPropagation(); deleteTask(id); };
+      })(doneTasks[di].id));
+      container.appendChild(dRow);
+    }
+  }
+
+  var spacer = document.createElement('div');
+  spacer.className = 'spacer';
+  container.appendChild(spacer);
+}
+
+// ============================================================
+// 設定画面のロジック
+// ============================================================
+
+// ── 設定画面の表示を更新 ──
+function updateSettingsScreen() {
+  // APIキーの状態表示
+  var apiKey = getApiKey();
+  var statusEl = document.getElementById('apiKeyStatus');
+  var inputEl = document.getElementById('apiKeyInput');
+
+  if (isArtifactEnv()) {
+    statusEl.innerHTML = '<span class="settings-status status-ok">✓ Artifact環境（キー不要）</span>';
+    inputEl.placeholder = 'Artifact環境では自動認証されます';
+  } else if (apiKey) {
+    statusEl.innerHTML = '<span class="settings-status status-ok">✓ 設定済み</span>';
+    // 保存済みキーの末尾4文字だけ表示
+    inputEl.value = '';
+    inputEl.placeholder = '••••••••' + apiKey.slice(-4) + '（変更する場合は新しいキーを入力）';
+  } else {
+    statusEl.innerHTML = '<span class="settings-status status-ng">未設定</span>';
+  }
+
+  // データ統計
+  var statsEl = document.getElementById('dataStats');
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      var d = JSON.parse(raw);
+      var active = d.tasks.filter(function(t) { return t.status === 'active'; }).length;
+      var done = d.tasks.filter(function(t) { return t.status === 'done'; }).length;
+      statsEl.textContent = '進行中: ' + active + '件 / 完了済み: ' + done + '件';
+    } else {
+      statsEl.textContent = 'データなし';
+    }
+  } catch (e) {
+    statsEl.textContent = '読み取り不可';
+  }
+}
+
+// ============================================================
+// 初期化
+// ============================================================
+
+(async function init() {
+  try {
+    updateHeaderDate();
+
+    // ── 登録ボタン ──
+    document.getElementById('registerBtn').addEventListener('click', function() {
+      registerTasks();
+    });
+
+    // ── 設定画面：APIキー保存ボタン ──
+    document.getElementById('saveApiKeyBtn').addEventListener('click', function() {
+      var input = document.getElementById('apiKeyInput');
+      var key = input.value.trim();
+
+      if (!key) {
+        showToast('APIキーを入力してください');
+        return;
+      }
+      if (key.indexOf('sk-') !== 0) {
+        showToast('APIキーは sk- で始まる必要があります');
+        return;
+      }
+
+      var saved = saveApiKey(key);
+      if (saved) {
+        input.value = '';
+        showToast('✓ APIキーを保存しました');
+        updateSettingsScreen();
+      } else {
+        showToast('保存に失敗しました');
+      }
+    });
+
+    // ── 設定画面：データ削除ボタン ──
+    document.getElementById('clearDataBtn').addEventListener('click', function() {
+      if (!confirm('全てのタスクデータを削除しますか？\nこの操作は元に戻せません。')) return;
+
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (e) { /* 無視 */ }
+
+      _inMemoryData = null;
+      showToast('✓ データを削除しました');
+      updateSettingsScreen();
+      renderFocusScreen();
+    });
+
+    await renderFocusScreen();
+  } catch (e) {
+    console.error('初期化エラー:', e);
+  }
+})();
+// ============================================================
+// Service Worker 登録（PWA対応）
+// ============================================================
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(function(e) {
+    // SW登録失敗は無視（アプリの動作には影響しない）
+  });
+}
+
+</script>
+</body>
+</html>

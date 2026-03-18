@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="108" fill="#09090f"/>
+  <rect x="20" y="20" width="472" height="472" rx="90" fill="none" stroke="#00e5a0" stroke-width="3" opacity="0.3"/>
+  <text x="256" y="230" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="800" font-size="160" fill="#ffffff" letter-spacing="-8">FO</text>
+  <circle cx="310" cy="195" r="10" fill="#00e5a0"/>
+  <text x="256" y="380" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="800" font-size="160" fill="#ffffff" letter-spacing="-8">CUS</text>
+</svg>
