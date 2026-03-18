@@ -1292,25 +1292,57 @@ input[type="date"] {
 <div class="screen" id="screen-settings">
 
   <div class="settings-section">
-    <div class="settings-title">API設定</div>
-    <div class="settings-label">Anthropic APIキー</div>
-    <div class="settings-desc">
-      AI分解機能を使うにはClaude APIキーが必要です。<br>
-      キーはこの端末のブラウザにのみ保存され、外部に送信されません。
+    <div class="settings-title">AI設定</div>
+
+    <div class="settings-label">AIプロバイダー</div>
+    <div class="settings-desc">Gemini（無料）がおすすめです。</div>
+    <div style="display:flex; gap:8px; margin-bottom:14px">
+      <button class="settings-btn settings-btn-primary" id="providerGemini" style="flex:1; text-align:center">Gemini（無料）</button>
+      <button class="settings-btn" id="providerClaude" style="flex:1; text-align:center; background:var(--surface); color:var(--text); border:1px solid var(--border)">Claude（有料）</button>
     </div>
-    <input type="password" class="settings-input" id="apiKeyInput" placeholder="sk-ant-api03-..." autocomplete="off">
-    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-      <button class="settings-btn settings-btn-primary" id="saveApiKeyBtn">保存する</button>
-      <div id="apiKeyStatus"></div>
+
+    <div id="geminiSettings">
+      <div class="settings-label">Google AI APIキー</div>
+      <div class="settings-desc">
+        無料で使えます（1日1,500回まで）。<br>
+        キーはこの端末のブラウザにのみ保存されます。
+      </div>
+      <input type="password" class="settings-input" id="geminiKeyInput" placeholder="AIza..." autocomplete="off">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <button class="settings-btn settings-btn-primary" id="saveGeminiKeyBtn">保存する</button>
+        <div id="geminiKeyStatus"></div>
+      </div>
+      <div class="api-guide">
+        <strong>APIキーの取得方法（無料・カード不要）：</strong>
+        <ol>
+          <li><a class="settings-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> を開く</li>
+          <li>Googleアカウントでログイン</li>
+          <li>「APIキーを作成」をクリック</li>
+          <li>作成されたキー（AIza...）をコピーして上に貼り付け</li>
+        </ol>
+      </div>
     </div>
-    <div class="api-guide">
-      <strong>APIキーの取得方法：</strong>
-      <ol>
-        <li><a class="settings-link" href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a> にアクセス</li>
-        <li>アカウントを作成 / ログイン</li>
-        <li>「API Keys」→「Create Key」でキーを作成</li>
-        <li>作成されたキー（sk-ant-...）をコピーして上に貼り付け</li>
-      </ol>
+
+    <div id="claudeSettings" style="display:none">
+      <div class="settings-label">Anthropic APIキー</div>
+      <div class="settings-desc">
+        従量課金（1回の分解で約1〜3円）。<br>
+        キーはこの端末のブラウザにのみ保存されます。
+      </div>
+      <input type="password" class="settings-input" id="claudeKeyInput" placeholder="sk-ant-api03-..." autocomplete="off">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <button class="settings-btn settings-btn-primary" id="saveClaudeKeyBtn">保存する</button>
+        <div id="claudeKeyStatus"></div>
+      </div>
+      <div class="api-guide">
+        <strong>APIキーの取得方法：</strong>
+        <ol>
+          <li><a class="settings-link" href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a> にアクセス</li>
+          <li>アカウントを作成 / ログイン</li>
+          <li>「API Keys」→「Create Key」でキーを作成</li>
+          <li>作成されたキー（sk-ant-...）をコピーして上に貼り付け</li>
+        </ol>
+      </div>
     </div>
   </div>
 
@@ -1326,7 +1358,7 @@ input[type="date"] {
   <div class="settings-section">
     <div class="settings-title">バージョン情報</div>
     <div class="settings-desc">
-      FOCUS v1.2<br>
+      FOCUS v1.3<br>
       ADHDユーザーのためのタスク管理アプリ
     </div>
   </div>
@@ -1361,39 +1393,37 @@ input[type="date"] {
 
 // ── 定数 ──
 var STORAGE_KEY = 'focus_app_data';
-var APIKEY_STORAGE_KEY = 'focus_api_key';
+var PROVIDER_KEY = 'focus_ai_provider';   // 'gemini' or 'claude'
+var GEMINI_KEY = 'focus_gemini_key';
+var CLAUDE_KEY = 'focus_claude_key';
+
+// ── AIプロバイダーの取得・保存 ──
+function getProvider() {
+  try { return localStorage.getItem(PROVIDER_KEY) || 'gemini'; }
+  catch (e) { return 'gemini'; }
+}
+function setProvider(p) {
+  try { localStorage.setItem(PROVIDER_KEY, p); } catch (e) {}
+}
 
 // ── APIキーの取得 ──
-// ① localStorageから取得を試みる
-// ② 取得できない場合は空文字を返す（Artifact環境ではキー不要）
-// 受け取るもの：なし
-// 返すもの：string（APIキーまたは空文字）
-function getApiKey() {
-  try {
-    return localStorage.getItem(APIKEY_STORAGE_KEY) || '';
-  } catch (e) {
-    return '';
-  }
+function getApiKey(provider) {
+  var key = (provider === 'claude') ? CLAUDE_KEY : GEMINI_KEY;
+  try { return localStorage.getItem(key) || ''; }
+  catch (e) { return ''; }
 }
 
 // ── APIキーの保存 ──
-// 受け取るもの：string（APIキー）
-// 返すもの：boolean（成功/失敗）
-function saveApiKey(key) {
+function saveApiKey(provider, value) {
+  var key = (provider === 'claude') ? CLAUDE_KEY : GEMINI_KEY;
   try {
-    if (key) {
-      localStorage.setItem(APIKEY_STORAGE_KEY, key);
-    } else {
-      localStorage.removeItem(APIKEY_STORAGE_KEY);
-    }
+    if (value) { localStorage.setItem(key, value); }
+    else { localStorage.removeItem(key); }
     return true;
-  } catch (e) {
-    return false;
-  }
+  } catch (e) { return false; }
 }
 
 // ── Artifact環境かどうかの判定 ──
-// window.storageが存在する = claude.aiのArtifact環境（APIキー自動付与）
 function isArtifactEnv() {
   return !!(window.storage && typeof window.storage.get === 'function');
 }
@@ -1609,16 +1639,15 @@ async function startDecompose() {
       + '- 1ステップは5〜20分以内\n'
       + '- 最大6ステップまで';
 
-    // ── APIキーの取得 ──
-    // Artifact環境（claude.ai内）ではキー不要（自動付与）
-    // 外部環境では設定画面で保存したキーを使う
-    var apiKey = getApiKey();
-    var headers = { 'Content-Type': 'application/json' };
-    if (apiKey) {
-      headers['x-api-key'] = apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-    } else if (!isArtifactEnv()) {
-      // 外部環境でAPIキー未設定 → エラー
+    // ── AIプロバイダーの判定とAPI呼び出し ──
+    var provider = getProvider();
+    var apiKey = getApiKey(provider);
+
+    // Artifact環境（claude.ai内）ではClaude APIがキー不要で使える
+    if (isArtifactEnv() && !apiKey) {
+      provider = 'claude-artifact';
+    } else if (!apiKey) {
+      // 外部環境でキー未設定 → 設定画面へ誘導
       clearInterval(stepInterval);
       document.getElementById('aiThinking').style.display = 'none';
       document.getElementById('phase1').style.display = 'flex';
@@ -1628,40 +1657,74 @@ async function startDecompose() {
       return;
     }
 
-    var response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: promptText }]
-      })
-    });
+    var response;
+    if (provider === 'gemini') {
+      // ── Gemini API呼び出し ──
+      var geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+      response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }]
+        })
+      });
+    } else {
+      // ── Claude API呼び出し ──
+      var claudeHeaders = { 'Content-Type': 'application/json' };
+      if (apiKey) {
+        claudeHeaders['x-api-key'] = apiKey;
+        claudeHeaders['anthropic-version'] = '2023-06-01';
+      }
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: claudeHeaders,
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: promptText }]
+        })
+      });
+    }
 
     clearInterval(stepInterval);
 
     if (!response.ok) {
       var errorBody = '';
       try { errorBody = await response.text(); } catch(e2) {}
+      if (response.status === 403 || response.status === 401) {
+        throw new Error('APIキーが無効です。設定画面で確認してください');
+      }
       throw new Error('API応答エラー (' + response.status + ')');
     }
 
     var data = await response.json();
-    if (!data.content || !Array.isArray(data.content) || data.content.length === 0) {
-      throw new Error('APIの応答が空です');
-    }
 
-    // テキストブロックを探す
-    var textBlock = null;
-    for (var i = 0; i < data.content.length; i++) {
-      if (data.content[i].type === 'text') { textBlock = data.content[i]; break; }
+    // ── レスポンスからテキストを抽出（プロバイダー別） ──
+    var rawText = '';
+    if (provider === 'gemini') {
+      // Gemini: candidates[0].content.parts[0].text
+      if (!data.candidates || !data.candidates[0] ||
+          !data.candidates[0].content || !data.candidates[0].content.parts) {
+        throw new Error('Geminiの応答が空です');
+      }
+      rawText = data.candidates[0].content.parts[0].text || '';
+    } else {
+      // Claude: content[].type==="text"
+      if (!data.content || !Array.isArray(data.content) || data.content.length === 0) {
+        throw new Error('Claudeの応答が空です');
+      }
+      var textBlock = null;
+      for (var i = 0; i < data.content.length; i++) {
+        if (data.content[i].type === 'text') { textBlock = data.content[i]; break; }
+      }
+      if (!textBlock || !textBlock.text) {
+        throw new Error('Claudeの応答にテキストがありません');
+      }
+      rawText = textBlock.text;
     }
-    if (!textBlock || !textBlock.text) {
-      throw new Error('APIの応答にテキストがありません');
-    }
-
-    // JSON抽出（コードフェンス除去 → 最外側の{}をマッチ）
-    var rawText = textBlock.text;
     rawText = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
     var jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('AIの応答からJSONを抽出できませんでした');
@@ -2345,21 +2408,43 @@ async function renderFocusScreen() {
 
 // ── 設定画面の表示を更新 ──
 function updateSettingsScreen() {
-  // APIキーの状態表示
-  var apiKey = getApiKey();
-  var statusEl = document.getElementById('apiKeyStatus');
-  var inputEl = document.getElementById('apiKeyInput');
+  var provider = getProvider();
 
-  if (isArtifactEnv()) {
-    statusEl.innerHTML = '<span class="settings-status status-ok">✓ Artifact環境（キー不要）</span>';
-    inputEl.placeholder = 'Artifact環境では自動認証されます';
-  } else if (apiKey) {
-    statusEl.innerHTML = '<span class="settings-status status-ok">✓ 設定済み</span>';
-    // 保存済みキーの末尾4文字だけ表示
-    inputEl.value = '';
-    inputEl.placeholder = '••••••••' + apiKey.slice(-4) + '（変更する場合は新しいキーを入力）';
+  // プロバイダーボタンの表示切替
+  var gemBtn = document.getElementById('providerGemini');
+  var claBtn = document.getElementById('providerClaude');
+  if (provider === 'gemini') {
+    gemBtn.style.background = 'var(--green)'; gemBtn.style.color = '#000'; gemBtn.style.border = 'none';
+    claBtn.style.background = 'var(--surface)'; claBtn.style.color = 'var(--text)'; claBtn.style.border = '1px solid var(--border)';
+    document.getElementById('geminiSettings').style.display = 'block';
+    document.getElementById('claudeSettings').style.display = 'none';
   } else {
-    statusEl.innerHTML = '<span class="settings-status status-ng">未設定</span>';
+    claBtn.style.background = 'var(--green)'; claBtn.style.color = '#000'; claBtn.style.border = 'none';
+    gemBtn.style.background = 'var(--surface)'; gemBtn.style.color = 'var(--text)'; gemBtn.style.border = '1px solid var(--border)';
+    document.getElementById('geminiSettings').style.display = 'none';
+    document.getElementById('claudeSettings').style.display = 'block';
+  }
+
+  // Geminiキー状態
+  var gemKey = getApiKey('gemini');
+  var gemStatus = document.getElementById('geminiKeyStatus');
+  if (gemKey) {
+    gemStatus.innerHTML = '<span class="settings-status status-ok">✓ 設定済み</span>';
+    document.getElementById('geminiKeyInput').placeholder = '••••' + gemKey.slice(-4) + '（変更する場合は新しいキーを入力）';
+  } else {
+    gemStatus.innerHTML = '<span class="settings-status status-ng">未設定</span>';
+  }
+
+  // Claudeキー状態
+  var claKey = getApiKey('claude');
+  var claStatus = document.getElementById('claudeKeyStatus');
+  if (isArtifactEnv()) {
+    claStatus.innerHTML = '<span class="settings-status status-ok">✓ Artifact環境（キー不要）</span>';
+  } else if (claKey) {
+    claStatus.innerHTML = '<span class="settings-status status-ok">✓ 設定済み</span>';
+    document.getElementById('claudeKeyInput').placeholder = '••••' + claKey.slice(-4) + '（変更する場合は新しいキーを入力）';
+  } else {
+    claStatus.innerHTML = '<span class="settings-status status-ng">未設定</span>';
   }
 
   // データ統計
@@ -2392,38 +2477,42 @@ function updateSettingsScreen() {
       registerTasks();
     });
 
-    // ── 設定画面：APIキー保存ボタン ──
-    document.getElementById('saveApiKeyBtn').addEventListener('click', function() {
-      var input = document.getElementById('apiKeyInput');
-      var key = input.value.trim();
-
-      if (!key) {
-        showToast('APIキーを入力してください');
-        return;
-      }
-      if (key.indexOf('sk-') !== 0) {
-        showToast('APIキーは sk- で始まる必要があります');
-        return;
-      }
-
-      var saved = saveApiKey(key);
-      if (saved) {
-        input.value = '';
-        showToast('✓ APIキーを保存しました');
-        updateSettingsScreen();
-      } else {
-        showToast('保存に失敗しました');
-      }
+    // ── プロバイダー切替ボタン ──
+    document.getElementById('providerGemini').addEventListener('click', function() {
+      setProvider('gemini');
+      updateSettingsScreen();
+    });
+    document.getElementById('providerClaude').addEventListener('click', function() {
+      setProvider('claude');
+      updateSettingsScreen();
     });
 
-    // ── 設定画面：データ削除ボタン ──
+    // ── Geminiキー保存 ──
+    document.getElementById('saveGeminiKeyBtn').addEventListener('click', function() {
+      var key = document.getElementById('geminiKeyInput').value.trim();
+      if (!key) { showToast('APIキーを入力してください'); return; }
+      if (key.indexOf('AIza') !== 0) { showToast('キーは AIza で始まる必要があります'); return; }
+      saveApiKey('gemini', key);
+      document.getElementById('geminiKeyInput').value = '';
+      showToast('✓ Gemini APIキーを保存しました');
+      updateSettingsScreen();
+    });
+
+    // ── Claudeキー保存 ──
+    document.getElementById('saveClaudeKeyBtn').addEventListener('click', function() {
+      var key = document.getElementById('claudeKeyInput').value.trim();
+      if (!key) { showToast('APIキーを入力してください'); return; }
+      if (key.indexOf('sk-') !== 0) { showToast('キーは sk- で始まる必要があります'); return; }
+      saveApiKey('claude', key);
+      document.getElementById('claudeKeyInput').value = '';
+      showToast('✓ Claude APIキーを保存しました');
+      updateSettingsScreen();
+    });
+
+    // ── データ削除 ──
     document.getElementById('clearDataBtn').addEventListener('click', function() {
       if (!confirm('全てのタスクデータを削除しますか？\nこの操作は元に戻せません。')) return;
-
-      try {
-        localStorage.removeItem(STORAGE_KEY);
-      } catch (e) { /* 無視 */ }
-
+      try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
       _inMemoryData = null;
       showToast('✓ データを削除しました');
       updateSettingsScreen();
