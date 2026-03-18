@@ -1117,6 +1117,90 @@ input[type="date"] {
 .api-guide li {
   margin-bottom: 4px;
 }
+/* ── CATEGORY SELECTOR ── */
+.category-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  align-items: center;
+}
+.category-chip {
+  padding: 8px 14px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.category-chip:hover { border-color: var(--green); }
+.category-chip.selected {
+  background: rgba(0,229,160,0.12);
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 700;
+}
+.category-edit-btn {
+  padding: 6px 10px;
+  border-radius: 20px;
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.category-edit-btn:hover { border-color: var(--green); color: var(--green); }
+
+/* ── CATEGORY EDITOR (設定画面) ── */
+.cat-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.cat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.cat-item-name { flex: 1; color: var(--text); font-size: 14px; }
+.cat-item-lock { color: var(--muted); font-size: 11px; }
+.cat-item-del {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.cat-item-del:hover { color: #ff5555; }
+.cat-add-row {
+  display: flex;
+  gap: 8px;
+}
+.cat-add-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.cat-add-input:focus { border-color: var(--green); }
+.cat-add-btn {
+  background: var(--green);
+  color: #000;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 /* ── ONBOARDING SCREEN ── */
 .onboarding-overlay {
   display: none;
@@ -1385,6 +1469,7 @@ input[type="date"] {
       </div>
     </div>
     <textarea id="taskInput" placeholder="例：来週のプレゼン資料を作って、上司に確認してもらう必要がある。あと田中さんへのメールも返してない。" rows="4"></textarea>
+    <div class="category-bar" id="categoryBar"></div>
     <div class="deadline-row">
       <div class="deadline-label">📅 締切（任意）</div>
       <input type="date" id="deadline" />
@@ -1513,9 +1598,21 @@ input[type="date"] {
   </div>
 
   <div class="settings-section">
+    <div class="settings-title">カテゴリー管理</div>
+    <div class="settings-desc">
+      タスク分解時に選べるカテゴリーです。自由に追加・削除できます。
+    </div>
+    <div class="cat-list" id="catList"></div>
+    <div class="cat-add-row">
+      <input class="cat-add-input" id="catAddInput" type="text" placeholder="新しいカテゴリー名">
+      <button class="cat-add-btn" id="catAddBtn">追加</button>
+    </div>
+  </div>
+
+  <div class="settings-section">
     <div class="settings-title">バージョン情報</div>
     <div class="settings-desc">
-      FOCUS v1.4<br>
+      FOCUS v1.5<br>
       ADHDユーザーのためのタスク管理アプリ
     </div>
   </div>
@@ -1593,18 +1690,11 @@ var PROFILE_KEY = 'focus_user_profile';
 // ── Q&Aの質問定義 ──
 var ONBOARDING_QUESTIONS = [
   {
-    id: 'nickname',
-    question: 'なんて呼べばいい？',
-    hint: 'AIがこの名前で話しかけます',
-    type: 'text',
-    placeholder: '例：たけし、まい、ニックネーム'
-  },
-  {
     id: 'job',
-    question: 'どんな仕事をしてる？',
+    question: '職種と立場を教えて',
     hint: '仕事内容に合わせた分解をします',
     type: 'text',
-    placeholder: '例：営業、エンジニア、デザイナー、学生、主婦'
+    placeholder: '例：営業部長、フリーランスデザイナー、大学3年生'
   },
   {
     id: 'procrastination',
@@ -1628,17 +1718,6 @@ var ONBOARDING_QUESTIONS = [
       '15分くらい',
       '30分くらい',
       '60分以上もつ'
-    ]
-  },
-  {
-    id: 'motivation',
-    question: 'どんな声かけが一番動ける？',
-    hint: 'AIの話し方をあなたに合わせます',
-    type: 'single',
-    options: [
-      '「大丈夫、まず1つだけやろう」（やさしめ）',
-      '「サクッとやっちゃおう！」（フランク）',
-      '「期限は明日です」（事務的）'
     ]
   },
   {
@@ -1695,21 +1774,263 @@ function buildProfilePrompt() {
 
   var lines = [];
   lines.push('【ユーザー情報】');
-  if (p.nickname) { lines.push('呼び名：' + p.nickname); }
-  if (p.job) { lines.push('職種：' + p.job); }
+  if (p.job) { lines.push('職種・立場：' + p.job); }
   if (p.procrastination) { lines.push('先延ばしの主因：' + p.procrastination); }
   if (p.focusMinutes) { lines.push('集中力の目安：' + p.focusMinutes); }
-  if (p.motivation) { lines.push('好む声かけ：' + p.motivation); }
   if (p.weakPoints && p.weakPoints.length > 0) {
     lines.push('苦手なこと：' + p.weakPoints.join('、'));
   }
   if (p.granularity) { lines.push('分解の粒度：' + p.granularity); }
-  lines.push('');
-  lines.push('上記の情報を踏まえて、この人に最適な粒度・口調でタスクを分解してください。');
-  lines.push('苦手なことに関連するステップはより細かく分解してください。');
-  lines.push('集中力の目安を超えないステップにしてください。');
 
   return lines.join('\n');
+}
+
+// ============================================================
+// カテゴリー管理
+// ============================================================
+var CATEGORIES_KEY = 'focus_categories';
+var selectedCategory = '';
+
+// ── 職種・立場からデフォルトカテゴリーを生成 ──
+function getDefaultCategories(job) {
+  var cats = [];
+
+  if (!job) {
+    return ['仕事', 'プライベート'];
+  }
+
+  var j = job.toLowerCase();
+
+  // ── 医療系 ──
+  if (j.indexOf('医師') !== -1 || j.indexOf('医者') !== -1 || j.indexOf('ドクター') !== -1) {
+    cats = ['診療・外来', '書類・カルテ', '学会・研修'];
+  } else if (j.indexOf('看護') !== -1 || j.indexOf('ナース') !== -1) {
+    cats = ['患者対応', '記録・申し送り', 'シフト管理'];
+  } else if (j.indexOf('薬剤') !== -1 || j.indexOf('薬局') !== -1) {
+    cats = ['調剤・服薬指導', '在庫管理', '書類・届出'];
+  } else if (j.indexOf('医療') !== -1 || j.indexOf('病院') !== -1 || j.indexOf('クリニック') !== -1) {
+    cats = ['患者対応', '事務・書類', '院内調整'];
+
+  // ── 教育系 ──
+  } else if (j.indexOf('教師') !== -1 || j.indexOf('教員') !== -1 || j.indexOf('先生') !== -1 || j.indexOf('教諭') !== -1) {
+    cats = ['授業準備', '生徒対応', '校務・会議'];
+  } else if (j.indexOf('塾') !== -1 || j.indexOf('講師') !== -1) {
+    cats = ['授業・指導', '教材作成', '保護者対応'];
+  } else if (j.indexOf('保育') !== -1 || j.indexOf('幼稚園') !== -1) {
+    cats = ['保育・活動', '連絡帳・記録', '行事準備'];
+
+  // ── スポーツ指導者 ──
+  } else if (j.indexOf('コーチ') !== -1 || j.indexOf('監督') !== -1 || j.indexOf('指導') !== -1 || j.indexOf('トレーナー') !== -1 || j.indexOf('インストラクター') !== -1 || j.indexOf('スポーツ') !== -1) {
+    cats = ['練習・指導', '選手管理', '試合・大会準備'];
+
+  // ── 飲食・サービス業 ──
+  } else if (j.indexOf('飲食') !== -1 || j.indexOf('レストラン') !== -1 || j.indexOf('カフェ') !== -1 || j.indexOf('料理') !== -1 || j.indexOf('シェフ') !== -1 || j.indexOf('調理') !== -1) {
+    cats = ['仕込み・調理', 'シフト・人員', '仕入れ・在庫'];
+  } else if (j.indexOf('接客') !== -1 || j.indexOf('サービス') !== -1 || j.indexOf('ホテル') !== -1 || j.indexOf('美容') !== -1) {
+    cats = ['接客・対応', '予約管理', '売上・報告'];
+
+  // ── 不動産・建設 ──
+  } else if (j.indexOf('不動産') !== -1) {
+    cats = ['物件案内', '契約・書類', '顧客フォロー'];
+  } else if (j.indexOf('建設') !== -1 || j.indexOf('施工') !== -1 || j.indexOf('現場') !== -1 || j.indexOf('工事') !== -1 || j.indexOf('建築') !== -1) {
+    cats = ['現場管理', '図面・書類', '業者調整'];
+
+  // ── 物流・配送 ──
+  } else if (j.indexOf('物流') !== -1 || j.indexOf('配送') !== -1 || j.indexOf('倉庫') !== -1 || j.indexOf('運送') !== -1 || j.indexOf('ドライバー') !== -1) {
+    cats = ['配送・集荷', 'ルート管理', '入出庫・在庫'];
+
+  // ── クリエイター系 ──
+  } else if (j.indexOf('動画') !== -1 || j.indexOf('映像') !== -1 || j.indexOf('youtube') !== -1) {
+    cats = ['撮影・編集', '企画・構成', 'SNS・投稿'];
+  } else if (j.indexOf('音楽') !== -1 || j.indexOf('ミュージシャン') !== -1 || j.indexOf('作曲') !== -1 || j.indexOf('dtm') !== -1) {
+    cats = ['制作・作曲', 'レコーディング', '活動・告知'];
+  } else if (j.indexOf('ライター') !== -1 || j.indexOf('編集') !== -1 || j.indexOf('記者') !== -1 || j.indexOf('執筆') !== -1) {
+    cats = ['執筆・取材', 'リサーチ', '入稿・校正'];
+  } else if (j.indexOf('クリエイター') !== -1 || j.indexOf('イラスト') !== -1 || j.indexOf('漫画') !== -1) {
+    cats = ['制作・作業', 'クライアント対応', 'SNS・告知'];
+
+  // ── マーケティング・広報 ──
+  } else if (j.indexOf('マーケ') !== -1 || j.indexOf('広報') !== -1 || j.indexOf('pr') !== -1 || j.indexOf('広告') !== -1) {
+    cats = ['企画・施策', 'データ分析', 'コンテンツ制作'];
+
+  // ── 人事・採用 ──
+  } else if (j.indexOf('人事') !== -1 || j.indexOf('採用') !== -1 || j.indexOf('労務') !== -1) {
+    cats = ['採用・面接', '社内制度', '労務・手続き'];
+
+  // ── 法務・コンプライアンス ──
+  } else if (j.indexOf('法務') !== -1 || j.indexOf('コンプラ') !== -1 || j.indexOf('契約') !== -1) {
+    cats = ['契約レビュー', 'コンプライアンス', '社内相談'];
+
+  // ── コンサル・士業 ──
+  } else if (j.indexOf('コンサル') !== -1) {
+    cats = ['クライアント対応', 'リサーチ・分析', '資料作成'];
+  } else if (j.indexOf('税理士') !== -1 || j.indexOf('会計士') !== -1) {
+    cats = ['申告・決算', '顧問対応', '書類作成'];
+  } else if (j.indexOf('弁護士') !== -1 || j.indexOf('司法書士') !== -1 || j.indexOf('行政書士') !== -1) {
+    cats = ['案件対応', '書面作成', '相談・面談'];
+  } else if (j.indexOf('社労士') !== -1) {
+    cats = ['手続き・届出', '顧問対応', '就業規則'];
+
+  // ── 営業 ──
+  } else if (j.indexOf('営業') !== -1) {
+    cats = ['商談・アポ', '資料作成', '社内報告'];
+
+  // ── エンジニア・開発 ──
+  } else if (j.indexOf('エンジニア') !== -1 || j.indexOf('開発') !== -1 || j.indexOf('プログラマ') !== -1 || j.indexOf('se') !== -1) {
+    cats = ['開発・実装', 'レビュー・調査', 'ミーティング'];
+
+  // ── デザイナー ──
+  } else if (j.indexOf('デザイナ') !== -1 || j.indexOf('デザイン') !== -1 || j.indexOf('ui') !== -1 || j.indexOf('ux') !== -1) {
+    cats = ['デザイン制作', 'クライアント対応', 'リサーチ'];
+
+  // ── 管理職 ──
+  } else if (j.indexOf('マネ') !== -1 || j.indexOf('部長') !== -1 || j.indexOf('課長') !== -1 || j.indexOf('リーダー') !== -1 || j.indexOf('係長') !== -1) {
+    cats = ['チーム管理', '会議・報告', '意思決定'];
+
+  // ── 経営層 ──
+  } else if (j.indexOf('社長') !== -1 || j.indexOf('代表') !== -1 || j.indexOf('役員') !== -1 || j.indexOf('経営') !== -1 || j.indexOf('ceo') !== -1 || j.indexOf('cto') !== -1) {
+    cats = ['経営判断', '社外対応', '社内統括'];
+
+  // ── 事務・バックオフィス ──
+  } else if (j.indexOf('事務') !== -1 || j.indexOf('総務') !== -1 || j.indexOf('経理') !== -1 || j.indexOf('財務') !== -1) {
+    cats = ['書類・手続き', 'データ管理', '社内調整'];
+
+  // ── 学生 ──
+  } else if (j.indexOf('学生') !== -1 || j.indexOf('大学') !== -1 || j.indexOf('高校') !== -1 || j.indexOf('専門学校') !== -1) {
+    cats = ['授業・課題', '就活・進路', 'バイト'];
+
+  // ── 主婦・主夫 ──
+  } else if (j.indexOf('主婦') !== -1 || j.indexOf('主夫') !== -1) {
+    cats = ['家事', '子育て', '買い物・手続き'];
+
+  // ── フリーランス・個人事業 ──
+  } else if (j.indexOf('フリー') !== -1 || j.indexOf('個人') !== -1 || j.indexOf('独立') !== -1 || j.indexOf('自営') !== -1) {
+    cats = ['クライアント業務', '営業・集客', '経理・事務'];
+
+  // ── その他 ──
+  } else {
+    cats = ['メイン業務', '事務・雑務', '連絡・調整'];
+  }
+
+  cats.push('プライベート');
+  return cats;
+}
+
+// ── カテゴリーの保存・読み込み ──
+function getCategories() {
+  try {
+    var raw = localStorage.getItem(CATEGORIES_KEY);
+    if (raw) { return JSON.parse(raw); }
+  } catch (e) {}
+
+  // 初回はプロフィールの職種から生成
+  var p = getProfile();
+  var cats = getDefaultCategories(p ? p.job : '');
+  saveCategories(cats);
+  return cats;
+}
+
+function saveCategories(cats) {
+  try { localStorage.setItem(CATEGORIES_KEY, JSON.stringify(cats)); }
+  catch (e) {}
+}
+
+// ── カテゴリーバーの描画 ──
+function renderCategoryBar() {
+  var bar = document.getElementById('categoryBar');
+  if (!bar) { return; }
+
+  var cats = getCategories();
+  var html = '';
+  for (var i = 0; i < cats.length; i++) {
+    var sel = (selectedCategory === cats[i]) ? ' selected' : '';
+    html += '<button class="category-chip' + sel + '" data-cat="' + i + '">'
+      + cats[i] + '</button>';
+  }
+  // 編集ボタン
+  html += '<button class="category-edit-btn" id="catEditJump">✎</button>';
+  bar.innerHTML = html;
+
+  // カテゴリー選択イベント
+  var chips = bar.querySelectorAll('.category-chip');
+  for (var j = 0; j < chips.length; j++) {
+    chips[j].addEventListener('click', function() {
+      var idx = parseInt(this.getAttribute('data-cat'));
+      var clickedCat = cats[idx];
+      if (selectedCategory === clickedCat) {
+        selectedCategory = '';
+      } else {
+        selectedCategory = clickedCat;
+      }
+      renderCategoryBar();
+    });
+  }
+
+  // 編集ボタン → 設定画面へジャンプ
+  var editBtn = document.getElementById('catEditJump');
+  if (editBtn) {
+    editBtn.addEventListener('click', function() {
+      switchTab('settings');
+    });
+  }
+}
+
+// ── 設定画面のカテゴリーエディター描画 ──
+function renderCatEditor() {
+  var listEl = document.getElementById('catList');
+  if (!listEl) { return; }
+
+  var cats = getCategories();
+  var html = '';
+  for (var i = 0; i < cats.length; i++) {
+    html += '<div class="cat-item">';
+    html += '<div class="cat-item-name">' + cats[i] + '</div>';
+    if (cats[i] === 'プライベート') {
+      html += '<span class="cat-item-lock">固定</span>';
+    } else {
+      html += '<button class="cat-item-del" data-delidx="' + i + '">×</button>';
+    }
+    html += '</div>';
+  }
+  listEl.innerHTML = html;
+
+  // 削除ボタンのイベント
+  var delBtns = listEl.querySelectorAll('.cat-item-del');
+  for (var d = 0; d < delBtns.length; d++) {
+    delBtns[d].addEventListener('click', function() {
+      var idx = parseInt(this.getAttribute('data-delidx'));
+      var currentCats = getCategories();
+      var removed = currentCats[idx];
+      currentCats.splice(idx, 1);
+      saveCategories(currentCats);
+      if (selectedCategory === removed) { selectedCategory = ''; }
+      renderCatEditor();
+      renderCategoryBar();
+    });
+  }
+}
+
+function addCategory(name) {
+  if (!name) { return; }
+  var cats = getCategories();
+  // 重複チェック
+  for (var i = 0; i < cats.length; i++) {
+    if (cats[i] === name) {
+      showToast('同じ名前のカテゴリーがあります');
+      return;
+    }
+  }
+  // プライベートの前に挿入
+  var privIdx = cats.indexOf('プライベート');
+  if (privIdx !== -1) {
+    cats.splice(privIdx, 0, name);
+  } else {
+    cats.push(name);
+  }
+  saveCategories(cats);
+  renderCatEditor();
+  renderCategoryBar();
+  showToast('✓ 「' + name + '」を追加しました');
 }
 
 // ── オンボーディング画面の制御 ──
@@ -1835,16 +2156,21 @@ function updateObNextBtn() {
 
 function finishOnboarding() {
   var profile = {
-    nickname: obAnswers.nickname || '',
     job: obAnswers.job || '',
     procrastination: obAnswers.procrastination || '',
     focusMinutes: obAnswers.focusMinutes || '',
-    motivation: obAnswers.motivation || '',
     weakPoints: obAnswers.weakPoints || [],
     granularity: obAnswers.granularity || '',
     createdAt: new Date().toISOString()
   };
   saveProfile(profile);
+
+  // 職種・立場からカテゴリーを再生成
+  var cats = getDefaultCategories(profile.job);
+  saveCategories(cats);
+  selectedCategory = '';
+  renderCategoryBar();
+
   document.getElementById('onboarding').classList.remove('active');
   showToast('✓ プロフィールを保存しました！');
 }
@@ -2048,20 +2374,21 @@ async function startDecompose() {
   try {
     // ── プロフィール情報をプロンプトに注入 ──
     var profilePrompt = buildProfilePrompt();
+    var categoryText = selectedCategory ? '【カテゴリー】' + selectedCategory + '\nこのカテゴリーに適した分解をせよ。\n' : '';
 
-    var promptText = 'あなたはADHDのユーザーを助けるタスク管理AIです。\n\n'
+    var promptText = 'タスク分解AI。入力からタスクを抽出し、実行順に小さなステップに分解せよ。\n\n'
       + (profilePrompt ? profilePrompt + '\n\n' : '')
-      + '以下の入力からタスクを抽出し、各タスクを小さなステップに分解してください。\n'
+      + (categoryText ? categoryText + '\n' : '')
       + deadlineText + '\n\n'
-      + 'ユーザーの入力：\n「' + input + '」\n\n'
-      + '以下のJSON形式のみで返答してください。前置きや説明は不要です。\n'
-      + 'JSONのみを返し、マークダウンのコードブロックで囲まないでください：\n\n'
-      + '{"tasks":[{"title":"親タスク名","emoji":"絵文字1つ","deadline":"締切の説明","steps":[{"text":"具体的な行動","ball":"自分","minutes":10}]}]}\n\n'
-      + 'ballの値は "自分" または "相手：名前" のどちらかです。\n\n'
+      + '入力：\n「' + input + '」\n\n'
+      + 'JSONのみ返せ。前置き・説明・声かけ・励まし・コードブロック一切不要：\n\n'
+      + '{"tasks":[{"title":"親タスク名","emoji":"絵文字1つ","deadline":"締切","steps":[{"text":"動詞で始まる一文","ball":"自分","minutes":10}]}]}\n\n'
       + 'ルール：\n'
-      + '- ステップは必ず具体的な行動にする\n'
-      + '- ballが相手の場合は誰のボールか明記（例："相手：上司"）\n'
-      + '- 1ステップはユーザーの集中力の目安を超えない長さにする\n'
+      + '- textは動詞で始まる簡潔な一文（15文字以内が理想）\n'
+      + '- 余計な説明・補足・声かけは入れない\n'
+      + '- ballは "自分" または "相手：名前"\n'
+      + '- 1ステップはユーザーの集中力の目安内\n'
+      + '- 苦手なことに関連するステップはより細かく分解\n'
       + '- 最大6ステップまで';
 
     // ── AIプロバイダーの判定とAPI呼び出し ──
@@ -2893,14 +3220,16 @@ function updateSettingsScreen() {
   var prof = getProfile();
   if (prof) {
     var parts = [];
-    if (prof.nickname) { parts.push('呼び名：' + prof.nickname); }
-    if (prof.job) { parts.push('職種：' + prof.job); }
+    if (prof.job) { parts.push('職種・立場：' + prof.job); }
     if (prof.focusMinutes) { parts.push('集中力：' + prof.focusMinutes); }
     if (prof.granularity) { parts.push('粒度：' + prof.granularity); }
     profEl.textContent = parts.join(' / ');
   } else {
     profEl.textContent = '未設定';
   }
+
+  // カテゴリーエディター描画
+  renderCatEditor();
 }
 
 // ============================================================
@@ -2991,7 +3320,24 @@ function updateSettingsScreen() {
       startOnboarding();
     });
 
+    // ── カテゴリー追加ボタン ──
+    document.getElementById('catAddBtn').addEventListener('click', function() {
+      var inp = document.getElementById('catAddInput');
+      var name = inp.value.trim();
+      if (!name) { showToast('カテゴリー名を入力してください'); return; }
+      addCategory(name);
+      inp.value = '';
+    });
+    // Enterキーでも追加
+    document.getElementById('catAddInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('catAddBtn').click();
+      }
+    });
+
     await renderFocusScreen();
+    renderCategoryBar();
   } catch (e) {
     console.error('初期化エラー:', e);
   }
