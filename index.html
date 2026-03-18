@@ -2824,19 +2824,23 @@ function renderReview() {
 
   tree.addEventListener('touchend', function(e) {
     clearTimeout(touchTimer);
+
+    // 全dragging/drag-overを必ずクリア
+    var allDragging = tree.querySelectorAll('.dragging');
+    for (var d = 0; d < allDragging.length; d++) { allDragging[d].classList.remove('dragging'); }
+    var overs = tree.querySelectorAll('.drag-over');
+    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+
     if (!touchActive) {
       touchDragItem = null;
+      touchDragTi = null;
+      touchDragSi = null;
       return;
     }
     touchActive = false;
 
     // ドロップ先の特定
-    var overs = tree.querySelectorAll('.drag-over');
     var dropItem = overs.length > 0 ? overs[0] : null;
-
-    // クリア
-    if (touchDragItem) { touchDragItem.classList.remove('dragging'); }
-    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
 
     if (dropItem) {
       var dropTi = parseInt(dropItem.getAttribute('data-drag-ti'));
@@ -2849,6 +2853,19 @@ function renderReview() {
       }
     }
 
+    touchDragTi = null;
+    touchDragSi = null;
+    touchDragItem = null;
+  });
+
+  // タッチキャンセル時も必ずクリア
+  tree.addEventListener('touchcancel', function() {
+    clearTimeout(touchTimer);
+    touchActive = false;
+    var allDragging = tree.querySelectorAll('.dragging');
+    for (var d = 0; d < allDragging.length; d++) { allDragging[d].classList.remove('dragging'); }
+    var overs = tree.querySelectorAll('.drag-over');
+    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
     touchDragTi = null;
     touchDragSi = null;
     touchDragItem = null;
