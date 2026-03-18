@@ -1,7 +1,7 @@
-// FOCUS Service Worker v7
+// FOCUS Service Worker v8
 // オフライン対応：HTMLとアイコンをキャッシュする
 
-var CACHE_NAME = 'focus-v7';
+var CACHE_NAME = 'focus-v8';
 var CACHE_URLS = [
   '/',
   '/index.html',

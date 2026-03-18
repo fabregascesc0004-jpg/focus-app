@@ -34,6 +34,7 @@
  *   text: string (ステップの内容),
  *   ball: "自分" | "相手：〇〇" (ボール),
  *   minutes: number (目安分数),
+ *   deadline: string (期限日 "YYYY-MM-DD" or ""),
  *   status: "todo" | "current" | "done" | "waiting" (ステータス)
  * }
  *
@@ -462,6 +463,58 @@ input[type="date"] {
   padding: 2px 8px;
   border-radius: 99px;
 }
+.step-deadline-input {
+  font-size: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 2px 6px;
+  border-radius: 99px;
+  outline: none;
+  max-width: 120px;
+}
+.step-deadline-input:focus { border-color: var(--green); }
+
+/* 実行画面のステップ期限表示 */
+.step-dl-tag {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--surface2);
+  color: var(--muted);
+  margin-left: 4px;
+}
+.step-dl-tag.soon {
+  background: rgba(255,170,0,0.15);
+  color: #ffaa00;
+}
+.step-dl-tag.overdue {
+  background: rgba(255,80,80,0.15);
+  color: #ff5050;
+}
+
+/* ソートボタン */
+.sort-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  justify-content: flex-end;
+}
+.sort-btn {
+  font-size: 11px;
+  padding: 5px 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+}
+.sort-btn.active {
+  background: rgba(0,229,160,0.12);
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 700;
+}
 
 .step-actions {
   display: flex;
@@ -721,6 +774,8 @@ input[type="date"] {
   color: var(--white);
 }
 .meta-value.green { color: var(--green); }
+.meta-value.orange { color: #ffaa00; }
+.meta-value.red { color: #ff5050; }
 .meta-value.orange { color: var(--orange); }
 
 .now-actions { display: flex; gap: 8px; padding: 0 16px 16px; }
@@ -1397,6 +1452,10 @@ input[type="date"] {
           <div class="meta-label">締切</div>
           <div class="meta-value" id="nowDeadline">-</div>
         </div>
+        <div class="now-meta-item">
+          <div class="meta-label">ステップ期限</div>
+          <div class="meta-value" id="nowStepDeadline">-</div>
+        </div>
       </div>
       <div class="now-actions">
         <button class="act-btn act-done" onclick="completeCurrentStep()">✓ 完了</button>
@@ -1790,6 +1849,7 @@ function buildProfilePrompt() {
 // ============================================================
 var CATEGORIES_KEY = 'focus_categories';
 var selectedCategory = '';
+var focusSortMode = 'default'; // 'default' or 'deadline'
 
 // ── 職種・立場からデフォルトカテゴリーを生成 ──
 function getDefaultCategories(job) {
@@ -2377,19 +2437,23 @@ async function startDecompose() {
     var categoryText = selectedCategory ? '【カテゴリー】' + selectedCategory + '\nこのカテゴリーに適した分解をせよ。\n' : '';
 
     var promptText = 'タスク分解AI。入力からタスクを抽出し、実行順に小さなステップに分解せよ。\n\n'
+      + '今日の日付：' + new Date().toISOString().slice(0, 10) + '\n\n'
       + (profilePrompt ? profilePrompt + '\n\n' : '')
       + (categoryText ? categoryText + '\n' : '')
       + deadlineText + '\n\n'
       + '入力：\n「' + input + '」\n\n'
       + 'JSONのみ返せ。前置き・説明・声かけ・励まし・コードブロック一切不要：\n\n'
-      + '{"tasks":[{"title":"親タスク名","emoji":"絵文字1つ","deadline":"締切","steps":[{"text":"動詞で始まる一文","ball":"自分","minutes":10}]}]}\n\n'
+      + '{"tasks":[{"title":"親タスク名","emoji":"絵文字1つ","deadline":"YYYY-MM-DD","steps":[{"text":"動詞で始まる一文","ball":"自分","minutes":10,"deadline":"YYYY-MM-DD"}]}]}\n\n'
       + 'ルール：\n'
       + '- textは動詞で始まる簡潔な一文（15文字以内が理想）\n'
       + '- 余計な説明・補足・声かけは入れない\n'
       + '- ballは "自分" または "相手：名前"\n'
       + '- 1ステップはユーザーの集中力の目安内\n'
       + '- 苦手なことに関連するステップはより細かく分解\n'
-      + '- 最大6ステップまで';
+      + '- 最大6ステップまで\n'
+      + '- 親タスクのdeadlineはYYYY-MM-DD形式。締切が不明なら空文字\n'
+      + '- 各ステップのdeadlineは親の締切から逆算してYYYY-MM-DD形式で設定\n'
+      + '- 締切が不明な場合はステップのdeadlineも空文字';
 
     // ── AIプロバイダーの判定とAPI呼び出し ──
     var provider = getProvider();
@@ -2497,6 +2561,7 @@ async function startDecompose() {
         if (!task.steps[s].text) task.steps[s].text = '（内容未設定）';
         if (!task.steps[s].ball) task.steps[s].ball = '自分';
         if (typeof task.steps[s].minutes !== 'number') task.steps[s].minutes = 10;
+        if (!task.steps[s].deadline) task.steps[s].deadline = '';
       }
     }
 
@@ -2534,6 +2599,7 @@ function renderReview() {
     for (var si = 0; si < task.steps.length; si++) {
       var step = task.steps[si];
       var isSelf = step.ball === '自分';
+      var dlVal = step.deadline || '';
       stepsHtml += '<div class="step-item">'
         + '<div class="step-left"><div class="s-num ' + (isSelf ? 's-self' : 's-wait') + '">' + (si+1) + '</div></div>'
         + '<div class="step-content">'
@@ -2541,6 +2607,7 @@ function renderReview() {
         + '<div class="step-detail">'
         + '<span class="ball-badge ' + (isSelf ? 'ball-self' : 'ball-wait') + '">' + (isSelf ? '🟢 自分' : '⏳ ' + step.ball) + '</span>'
         + '<span class="time-badge">約' + step.minutes + '分</span>'
+        + '<input type="date" class="step-deadline-input" value="' + dlVal + '" data-ti="' + ti + '" data-si="' + si + '" title="ステップの期限" />'
         + '</div></div>'
         + '<div class="step-actions">'
         + '<div class="mini-btn" data-action="up" data-ti="' + ti + '" data-si="' + si + '" title="上へ">↑</div>'
@@ -2581,17 +2648,22 @@ function renderReview() {
       parsedTasks[ti].steps.splice(si, 1);
       renderReview();
     } else if (action === 'add') {
-      parsedTasks[ti].steps.push({ text: '新しいステップ', ball: '自分', minutes: 10 });
+      parsedTasks[ti].steps.push({ text: '新しいステップ', ball: '自分', minutes: 10, deadline: '' });
       renderReview();
     }
   };
 
-  // テキスト編集の反映
+  // テキスト編集 + 期限変更の反映
   tree.onchange = function(e) {
     if (e.target.classList.contains('step-editable')) {
       var ti = parseInt(e.target.getAttribute('data-ti'));
       var si = parseInt(e.target.getAttribute('data-si'));
       parsedTasks[ti].steps[si].text = e.target.value;
+    }
+    if (e.target.classList.contains('step-deadline-input')) {
+      var ti2 = parseInt(e.target.getAttribute('data-ti'));
+      var si2 = parseInt(e.target.getAttribute('data-si'));
+      parsedTasks[ti2].steps[si2].deadline = e.target.value;
     }
   };
 }
@@ -2940,6 +3012,49 @@ function toggleTree(panelId, chevId) {
 // 実行画面の描画
 // ============================================================
 
+// ── 期限ヘルパー関数 ──
+function getEarliestStepDeadline(task) {
+  var earliest = '';
+  for (var i = 0; i < task.steps.length; i++) {
+    var s = task.steps[i];
+    if (s.deadline && s.status !== 'done') {
+      if (!earliest || s.deadline < earliest) {
+        earliest = s.deadline;
+      }
+    }
+  }
+  return earliest;
+}
+
+function getDeadlineClass(deadlineStr) {
+  if (!deadlineStr) { return ''; }
+  var today = new Date();
+  today.setHours(0,0,0,0);
+  var parts = deadlineStr.split('-');
+  var dl = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  dl.setHours(0,0,0,0);
+  var diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
+  if (diff < 0) { return ' overdue'; }
+  if (diff <= 2) { return ' soon'; }
+  return '';
+}
+
+function formatDeadlineShort(deadlineStr) {
+  if (!deadlineStr) { return ''; }
+  var parts = deadlineStr.split('-');
+  var m = parseInt(parts[1]);
+  var d = parseInt(parts[2]);
+  var today = new Date();
+  today.setHours(0,0,0,0);
+  var dl = new Date(parseInt(parts[0]), m - 1, d);
+  dl.setHours(0,0,0,0);
+  var diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
+  if (diff < 0) { return m + '/' + d + '(過ぎた)'; }
+  if (diff === 0) { return '今日まで'; }
+  if (diff === 1) { return '明日まで'; }
+  return m + '/' + d + 'まで';
+}
+
 async function renderFocusScreen() {
   var data = await loadData();
   var tasks = data.tasks;
@@ -2976,6 +3091,18 @@ async function renderFocusScreen() {
     ballEl.className = 'meta-value' + (current.step.ball === '自分' ? ' green' : ' orange');
 
     document.getElementById('nowDeadline').textContent = current.task.deadline;
+
+    // ステップ期限
+    var sdEl = document.getElementById('nowStepDeadline');
+    if (current.step.deadline) {
+      var sdText = formatDeadlineShort(current.step.deadline);
+      var sdClass = getDeadlineClass(current.step.deadline);
+      sdEl.textContent = sdText;
+      sdEl.className = 'meta-value' + (sdClass === ' overdue' ? ' red' : sdClass === ' soon' ? ' orange' : '');
+    } else {
+      sdEl.textContent = '-';
+      sdEl.className = 'meta-value';
+    }
   } else {
     nowZone.style.display = 'none';
     var hasActive = false;
@@ -3015,6 +3142,35 @@ async function renderFocusScreen() {
   }
 
   if (activeTasks.length > 0) {
+    // ── ソートバー ──
+    var sortBar = document.createElement('div');
+    sortBar.className = 'sort-bar';
+    sortBar.innerHTML = '<button class="sort-btn' + (focusSortMode === 'default' ? ' active' : '') + '" data-sort="default">登録順</button>'
+      + '<button class="sort-btn' + (focusSortMode === 'deadline' ? ' active' : '') + '" data-sort="deadline">期限が近い順</button>';
+    container.appendChild(sortBar);
+
+    // ソートボタンイベント
+    sortBar.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-sort]');
+      if (!btn) { return; }
+      focusSortMode = btn.getAttribute('data-sort');
+      renderFocusScreen();
+    });
+
+    // ── 期限順ソート処理 ──
+    if (focusSortMode === 'deadline') {
+      activeTasks = activeTasks.slice(); // コピー
+      activeTasks.sort(function(a, b) {
+        var dlA = getEarliestStepDeadline(a);
+        var dlB = getEarliestStepDeadline(b);
+        // 期限なしは後ろ
+        if (!dlA && !dlB) { return 0; }
+        if (!dlA) { return 1; }
+        if (!dlB) { return -1; }
+        return dlA < dlB ? -1 : dlA > dlB ? 1 : 0;
+      });
+    }
+
     var treeLabel = document.createElement('div');
     treeLabel.className = 'tree-section-label';
     treeLabel.textContent = 'タスク全体';
@@ -3079,11 +3235,18 @@ async function renderFocusScreen() {
         else if (isWaiting) rightContent = '<span class="badge b-wait">' + cStep.ball.replace('相手：','') + '</span>';
         else rightContent = cStep.minutes + '分';
 
+        // 期限タグ
+        var dlTag = '';
+        if (cStep.deadline && cStep.status !== 'done') {
+          var dlClass = getDeadlineClass(cStep.deadline);
+          dlTag = '<span class="step-dl-tag' + dlClass + '">' + formatDeadlineShort(cStep.deadline) + '</span>';
+        }
+
         var row = document.createElement('div');
         row.className = rowClass;
         row.innerHTML =
           '<div class="' + snClass + '">' + (isDone ? '✓' : (ci+1)) + '</div>'
-          + '<div class="' + textClass + '">' + cStep.text + '</div>'
+          + '<div class="' + textClass + '">' + cStep.text + dlTag + '</div>'
           + '<div class="step-right-tree">' + rightContent + '</div>';
         childWrap.appendChild(row);
       }
