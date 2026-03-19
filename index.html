@@ -605,27 +605,31 @@ input[type="date"] {
 }
 
 /* ソートボタン */
-.sort-bar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  justify-content: flex-end;
-}
-.sort-btn {
-  font-size: 11px;
-  padding: 5px 12px;
-  border-radius: 16px;
-  background: var(--surface);
+/* 実行画面ステップ期限編集 */
+.tree-step-dl {
+  font-size: 10px;
+  background: var(--surface2);
   border: 1px solid var(--border);
-  color: var(--muted);
-  cursor: pointer;
+  color: var(--text);
+  padding: 2px 4px;
+  border-radius: 6px;
+  outline: none;
+  max-width: 110px;
+  margin-left: 4px;
 }
-.sort-btn.active {
-  background: rgba(0,229,160,0.12);
-  border-color: var(--green);
-  color: var(--green);
-  font-weight: 700;
+.tree-step-dl:focus { border-color: var(--green); }
+
+/* 渡す時の期限入力 */
+.pass-dl-input {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  outline: none;
 }
+.pass-dl-input:focus { border-color: var(--green); }
 
 .step-actions {
   display: flex;
@@ -1982,7 +1986,6 @@ function buildProfilePrompt() {
 // ============================================================
 var CATEGORIES_KEY = 'focus_categories';
 var selectedCategory = '';
-var focusSortMode = 'default'; // 'default' or 'deadline'
 
 // ── 職種・立場からデフォルトカテゴリーを生成 ──
 function getDefaultCategories(job) {
@@ -3196,10 +3199,11 @@ async function completeCurrentStep() {
 
 // ── 渡したボタン ──
 async function passCurrentStep() {
-  // 名前入力UIを表示
+  // 名前＋期限入力UIを表示
   var actionsEl = document.getElementById('nowActions');
   actionsEl.innerHTML = '<div class="pass-name-row">'
     + '<input type="text" class="pass-name-input" id="passNameInput" placeholder="相手の名前（任意）" />'
+    + '<input type="date" class="pass-dl-input" id="passDlInput" title="返事待ちの期限" />'
     + '<button class="act-btn act-done" id="passConfirmBtn">⇢ 渡す</button>'
     + '<button class="act-btn act-skip" id="passCancelBtn">戻る</button>'
     + '</div>';
@@ -3208,13 +3212,15 @@ async function passCurrentStep() {
 
   document.getElementById('passConfirmBtn').addEventListener('click', function() {
     var name = document.getElementById('passNameInput').value.trim();
-    doPassCurrentStep(name);
+    var dl = document.getElementById('passDlInput').value;
+    doPassCurrentStep(name, dl);
   });
   document.getElementById('passNameInput').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') {
       e.preventDefault();
       var name = document.getElementById('passNameInput').value.trim();
-      doPassCurrentStep(name);
+      var dl = document.getElementById('passDlInput').value;
+      doPassCurrentStep(name, dl);
     }
   });
   document.getElementById('passCancelBtn').addEventListener('click', function() {
@@ -3222,7 +3228,7 @@ async function passCurrentStep() {
   });
 }
 
-async function doPassCurrentStep(personName) {
+async function doPassCurrentStep(personName, deadline) {
   try {
     var data = await loadData();
     var current = findCurrentStep(data.tasks);
@@ -3238,6 +3244,7 @@ async function doPassCurrentStep(personName) {
     }
     step.status = 'waiting';
     step.ball = personName ? '相手：' + personName : '相手';
+    if (deadline) { step.deadline = deadline; }
 
     // 次の自分ボールを探す
     var foundNext = false;
@@ -3496,6 +3503,23 @@ async function treeReorderStep(taskId, fromIdx, toIdx) {
   }
 }
 
+// ── ステップ期限の変更 ──
+async function updateStepDeadline(taskId, stepIdx, newDeadline) {
+  try {
+    var data = await loadData();
+    var task = null;
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
+    }
+    if (!task || stepIdx < 0 || stepIdx >= task.steps.length) { return; }
+    task.steps[stepIdx].deadline = newDeadline;
+    await saveData(data);
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ 期限変更失敗');
+  }
+}
+
 // ── ツリー開閉 ──
 function toggleTree(panelId, chevId) {
   var panel = document.getElementById(panelId);
@@ -3570,97 +3594,95 @@ async function renderFocusScreen() {
   emptyEl.style.display = 'none';
   focusEl.style.display = 'block';
 
-  // ── 「今やること」の特定 ──
-  var current = findCurrentStep(tasks);
+  // ── 「今やること」の特定（期限が近い順に統合） ──
+  // current + waiting を全て集めて期限が近い順にソート
+  var actionableSteps = [];
+  for (var at = 0; at < tasks.length; at++) {
+    if (tasks[at].status !== 'active') continue;
+    for (var as2 = 0; as2 < tasks[at].steps.length; as2++) {
+      var st = tasks[at].steps[as2];
+      if (st.status === 'current' || st.status === 'waiting') {
+        actionableSteps.push({ task: tasks[at], step: st, stepIndex: as2 });
+      }
+    }
+  }
+  // 期限が近い順にソート（期限なしは後ろ）
+  actionableSteps.sort(function(a, b) {
+    var dlA = a.step.deadline || '';
+    var dlB = b.step.deadline || '';
+    if (!dlA && !dlB) return 0;
+    if (!dlA) return 1;
+    if (!dlB) return -1;
+    return dlA < dlB ? -1 : dlA > dlB ? 1 : 0;
+  });
+
   var nowZone = document.getElementById('nowZone');
   var allDoneZone = document.getElementById('allDoneZone');
 
-  if (current) {
+  if (actionableSteps.length > 0) {
+    var top = actionableSteps[0];
+    var isWaiting = top.step.status === 'waiting';
+
     nowZone.style.display = 'block';
     allDoneZone.style.display = 'none';
 
-    // ピルをデフォルトに戻す
-    document.getElementById('nowPill').textContent = '今やること';
-    document.getElementById('nowPill').className = 'now-pill';
-    // アクションボタンをデフォルトに戻す
-    var actionsEl = document.getElementById('nowActions');
-    actionsEl.innerHTML = '<button class="act-btn act-done" onclick="completeCurrentStep()">✓ 完了</button>'
-      + '<button class="act-btn act-pass" onclick="passCurrentStep()">⇢ 渡した</button>'
-      + '<button class="act-btn act-skip" onclick="skipCurrentStep()">後回し</button>';
+    // ピル
+    var pillEl = document.getElementById('nowPill');
+    if (isWaiting) {
+      pillEl.textContent = '⏳ 相手の返事待ち';
+      pillEl.className = 'now-pill now-pill-waiting';
+    } else {
+      pillEl.textContent = '今やること';
+      pillEl.className = 'now-pill';
+    }
 
-    document.getElementById('nowTaskName').textContent = current.step.text;
+    document.getElementById('nowTaskName').textContent = top.step.text;
     document.getElementById('nowParentInfo').textContent =
-      current.task.emoji + ' ' + current.task.title + ' › ステップ ' + (current.stepIndex + 1) + '/' + current.task.steps.length;
-    document.getElementById('nowMinutes').textContent = current.step.minutes + '分';
+      top.task.emoji + ' ' + top.task.title + ' › ステップ ' + (top.stepIndex + 1) + '/' + top.task.steps.length;
+    document.getElementById('nowMinutes').textContent = isWaiting ? '-' : top.step.minutes + '分';
 
     var ballEl = document.getElementById('nowBall');
-    ballEl.textContent = current.step.ball;
-    ballEl.className = 'meta-value' + (current.step.ball === '自分' ? ' green' : ' orange');
+    ballEl.textContent = top.step.ball;
+    ballEl.className = 'meta-value' + (top.step.ball === '自分' ? ' green' : ' orange');
 
-    document.getElementById('nowDeadline').textContent = current.task.deadline;
+    document.getElementById('nowDeadline').textContent = top.task.deadline;
 
     // ステップ期限
     var sdEl = document.getElementById('nowStepDeadline');
-    if (current.step.deadline) {
-      var sdText = formatDeadlineShort(current.step.deadline);
-      var sdClass = getDeadlineClass(current.step.deadline);
-      sdEl.textContent = sdText;
+    if (top.step.deadline) {
+      sdEl.textContent = formatDeadlineShort(top.step.deadline);
+      var sdClass = getDeadlineClass(top.step.deadline);
       sdEl.className = 'meta-value' + (sdClass === ' overdue' ? ' red' : sdClass === ' soon' ? ' orange' : '');
     } else {
       sdEl.textContent = '-';
       sdEl.className = 'meta-value';
     }
-  } else {
-    // currentがない場合 → 待機中ステップを表示
-    var waiting = findNextWaitingStep(tasks);
-    if (waiting) {
-      // 相手ボール待ちを「今やること」欄に表示
-      nowZone.style.display = 'block';
-      allDoneZone.style.display = 'none';
 
-      document.getElementById('nowPill').textContent = '⏳ 相手の返事待ち';
-      document.getElementById('nowPill').className = 'now-pill now-pill-waiting';
-      document.getElementById('nowTaskName').textContent = waiting.step.text;
-      document.getElementById('nowParentInfo').textContent =
-        waiting.task.emoji + ' ' + waiting.task.title + ' › ステップ ' + (waiting.stepIndex + 1) + '/' + waiting.task.steps.length;
-      document.getElementById('nowMinutes').textContent = '-';
-
-      var ballEl = document.getElementById('nowBall');
-      ballEl.textContent = waiting.step.ball;
-      ballEl.className = 'meta-value orange';
-
-      document.getElementById('nowDeadline').textContent = waiting.task.deadline;
-
-      var sdEl = document.getElementById('nowStepDeadline');
-      if (waiting.step.deadline) {
-        sdEl.textContent = formatDeadlineShort(waiting.step.deadline);
-        var sdClass = getDeadlineClass(waiting.step.deadline);
-        sdEl.className = 'meta-value' + (sdClass === ' overdue' ? ' red' : sdClass === ' soon' ? ' orange' : '');
-      } else {
-        sdEl.textContent = '-';
-        sdEl.className = 'meta-value';
-      }
-
-      // アクションボタンを「返事きた」に変更
-      var actionsEl = document.getElementById('nowActions');
+    // アクションボタン
+    var actionsEl = document.getElementById('nowActions');
+    if (isWaiting) {
       actionsEl.innerHTML = '<button class="act-btn act-done" id="nowResolveBtn">✓ 返事きた</button>';
       document.getElementById('nowResolveBtn').addEventListener('click', function() {
-        resolveWaitingStep(waiting.task.id, waiting.stepIndex);
+        resolveWaitingStep(top.task.id, top.stepIndex);
       });
     } else {
-      nowZone.style.display = 'none';
-      var hasActive = false;
-      for (var i = 0; i < tasks.length; i++) {
-        if (tasks[i].status === 'active') { hasActive = true; break; }
-      }
-      allDoneZone.style.display = 'flex';
-      if (hasActive) {
-        document.querySelector('.all-done-title').textContent = '自分ボール完了！';
-        document.querySelector('.all-done-sub').textContent = '相手からの返事を待ちましょう。';
-      } else {
-        document.querySelector('.all-done-title').textContent = '全部終わった！';
-        document.querySelector('.all-done-sub').textContent = '今日のタスクはすべて完了。お疲れさまでした！';
-      }
+      actionsEl.innerHTML = '<button class="act-btn act-done" onclick="completeCurrentStep()">✓ 完了</button>'
+        + '<button class="act-btn act-pass" onclick="passCurrentStep()">⇢ 渡した</button>'
+        + '<button class="act-btn act-skip" onclick="skipCurrentStep()">後回し</button>';
+    }
+  } else {
+    nowZone.style.display = 'none';
+    var hasActive = false;
+    for (var i = 0; i < tasks.length; i++) {
+      if (tasks[i].status === 'active') { hasActive = true; break; }
+    }
+    allDoneZone.style.display = 'flex';
+    if (hasActive) {
+      document.querySelector('.all-done-title').textContent = '自分ボール完了！';
+      document.querySelector('.all-done-sub').textContent = '相手からの返事を待ちましょう。';
+    } else {
+      document.querySelector('.all-done-title').textContent = '全部終わった！';
+      document.querySelector('.all-done-sub').textContent = '今日のタスクはすべて完了。お疲れさまでした！';
     }
   }
 
@@ -3687,34 +3709,16 @@ async function renderFocusScreen() {
   }
 
   if (activeTasks.length > 0) {
-    // ── ソートバー ──
-    var sortBar = document.createElement('div');
-    sortBar.className = 'sort-bar';
-    sortBar.innerHTML = '<button class="sort-btn' + (focusSortMode === 'default' ? ' active' : '') + '" data-sort="default">登録順</button>'
-      + '<button class="sort-btn' + (focusSortMode === 'deadline' ? ' active' : '') + '" data-sort="deadline">期限が近い順</button>';
-    container.appendChild(sortBar);
-
-    // ソートボタンイベント
-    sortBar.addEventListener('click', function(e) {
-      var btn = e.target.closest('[data-sort]');
-      if (!btn) { return; }
-      focusSortMode = btn.getAttribute('data-sort');
-      renderFocusScreen();
+    // ── 期限順ソート（常時）──  期限なしは最下部
+    activeTasks = activeTasks.slice();
+    activeTasks.sort(function(a, b) {
+      var dlA = getEarliestStepDeadline(a);
+      var dlB = getEarliestStepDeadline(b);
+      if (!dlA && !dlB) return 0;
+      if (!dlA) return 1;
+      if (!dlB) return -1;
+      return dlA < dlB ? -1 : dlA > dlB ? 1 : 0;
     });
-
-    // ── 期限順ソート処理 ──
-    if (focusSortMode === 'deadline') {
-      activeTasks = activeTasks.slice(); // コピー
-      activeTasks.sort(function(a, b) {
-        var dlA = getEarliestStepDeadline(a);
-        var dlB = getEarliestStepDeadline(b);
-        // 期限なしは後ろ
-        if (!dlA && !dlB) { return 0; }
-        if (!dlA) { return 1; }
-        if (!dlB) { return -1; }
-        return dlA < dlB ? -1 : dlA > dlB ? 1 : 0;
-      });
-    }
 
     var treeLabel = document.createElement('div');
     treeLabel.className = 'tree-section-label';
@@ -3796,6 +3800,13 @@ async function renderFocusScreen() {
             + '</div>';
         }
 
+        // 期限編集（完了済み以外）
+        var dlEdit = '';
+        if (!isDone) {
+          var dlVal2 = cStep.deadline || '';
+          dlEdit = '<input type="date" class="tree-step-dl" value="' + dlVal2 + '" data-task-id="' + aTask.id + '" data-step-idx="' + ci + '" title="期限変更" />';
+        }
+
         var row = document.createElement('div');
         row.className = rowClass;
         row.setAttribute('data-tree-drag-task', aTask.id);
@@ -3804,7 +3815,7 @@ async function renderFocusScreen() {
           '<div class="tree-drag-handle" draggable="true" data-tree-drag-task="' + aTask.id + '" data-tree-drag-idx="' + ci + '">⠿</div>'
           + '<div class="' + snClass + '">' + (isDone ? '✓' : (ci+1)) + '</div>'
           + '<div class="' + textClass + '">' + cStep.text + dlTag + '</div>'
-          + '<div class="step-right-tree">' + rightContent + '</div>'
+          + '<div class="step-right-tree">' + rightContent + dlEdit + '</div>'
           + editBtns;
         childWrap.appendChild(row);
       }
@@ -3843,6 +3854,16 @@ async function renderFocusScreen() {
         var taskId = actionBtn.getAttribute('data-task-id');
         var stepIdx = parseInt(actionBtn.getAttribute('data-step-idx'));
         handleTreeStepAction(treeAction, taskId, stepIdx);
+      }
+    });
+
+    // ── 期限変更ハンドラ ──
+    tree.addEventListener('change', function(e) {
+      if (e.target.classList.contains('tree-step-dl')) {
+        var taskId = e.target.getAttribute('data-task-id');
+        var stepIdx = parseInt(e.target.getAttribute('data-step-idx'));
+        var newDl = e.target.value;
+        updateStepDeadline(taskId, stepIdx, newDl);
       }
     });
 
