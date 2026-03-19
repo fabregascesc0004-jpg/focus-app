@@ -497,6 +497,20 @@ input[type="date"] {
   border-top: 2px solid var(--green);
 }
 
+/* ステップ間の挿入ボタン */
+.step-insert-btn {
+  text-align: center;
+  color: var(--border);
+  font-size: 14px;
+  padding: 2px 0;
+  cursor: pointer;
+  transition: color 0.15s;
+  line-height: 1;
+}
+.step-insert-btn:hover {
+  color: var(--green);
+}
+
 /* 実行画面のステップ追加ボタン */
 .tree-add-step {
   font-size: 12px;
@@ -507,6 +521,52 @@ input[type="date"] {
   border-top: 1px solid var(--border);
 }
 .tree-add-step:hover { color: var(--green); }
+
+/* 実行画面ステップ操作ボタン */
+.tree-step-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+.tree-mini-btn {
+  width: 26px; height: 26px;
+  border-radius: 6px;
+  background: var(--surface2);
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tree-mini-btn:hover { color: var(--green); }
+.tree-mini-del:hover { color: #ff5555; }
+.tree-mini-resolve {
+  background: var(--green-dim);
+  color: var(--green);
+  font-weight: 700;
+}
+.tree-mini-resolve:hover { background: var(--green); color: #000; }
+
+/* 実行画面ドラッグハンドル */
+.tree-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  color: var(--border);
+  font-size: 14px;
+  cursor: grab;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tree-drag-handle:hover { color: var(--green); }
+.tree-drag-handle:active { cursor: grabbing; }
+.step-row.dragging { opacity: 0.4; }
+.step-row.drag-over { border-top: 2px solid var(--green); }
 .time-badge {
   font-size: 10px;
   color: var(--text-dim);
@@ -2673,8 +2733,10 @@ function renderReview() {
         + '<input type="date" class="step-deadline-input" value="' + dlVal + '" data-ti="' + ti + '" data-si="' + si + '" title="ステップの期限" />'
         + '</div></div>'
         + '<div class="step-actions">'
+        + '<div class="mini-btn" data-action="dup" data-ti="' + ti + '" data-si="' + si + '" title="複製">⧉</div>'
         + '<div class="mini-btn del" data-action="del" data-ti="' + ti + '" data-si="' + si + '" title="削除">×</div>'
-        + '</div></div>';
+        + '</div></div>'
+        + '<div class="step-insert-btn" data-action="insert" data-ti="' + ti + '" data-si="' + si + '">＋</div>';
     }
 
     div.innerHTML = '<div class="review-parent-header">'
@@ -2700,6 +2762,19 @@ function renderReview() {
       renderReview();
     } else if (action === 'add') {
       parsedTasks[ti].steps.push({ text: '新しいステップ', ball: '自分', minutes: 10, deadline: '' });
+      renderReview();
+    } else if (action === 'dup') {
+      var orig = parsedTasks[ti].steps[si];
+      var copy = {
+        text: orig.text,
+        ball: orig.ball,
+        minutes: orig.minutes,
+        deadline: orig.deadline || ''
+      };
+      parsedTasks[ti].steps.splice(si + 1, 0, copy);
+      renderReview();
+    } else if (action === 'insert') {
+      parsedTasks[ti].steps.splice(si + 1, 0, { text: '新しいステップ', ball: '自分', minutes: 10, deadline: '' });
       renderReview();
     } else if (action === 'toggle-ball') {
       var currentBall = parsedTasks[ti].steps[si].ball;
@@ -3241,13 +3316,92 @@ async function addStepToTask(taskId) {
   }
 }
 
+// ── 実行画面のステップ操作（複製・削除） ──
+async function handleTreeStepAction(action, taskId, stepIdx) {
+  try {
+    var data = await loadData();
+    var task = null;
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
+    }
+    if (!task || stepIdx < 0 || stepIdx >= task.steps.length) { return; }
+
+    if (action === 'dup') {
+      var orig = task.steps[stepIdx];
+      var copy = {
+        id: 'step_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        text: orig.text,
+        ball: orig.ball,
+        minutes: orig.minutes,
+        deadline: orig.deadline || '',
+        status: 'todo'
+      };
+      task.steps.splice(stepIdx + 1, 0, copy);
+      await saveData(data);
+      showToast('✓ 複製しました');
+      await renderFocusScreen();
+    } else if (action === 'del-step') {
+      task.steps.splice(stepIdx, 1);
+      // currentが消えた場合、次のtodoをcurrentに
+      var hasCurrent = false;
+      for (var c = 0; c < task.steps.length; c++) {
+        if (task.steps[c].status === 'current') { hasCurrent = true; break; }
+      }
+      if (!hasCurrent) {
+        for (var n = 0; n < task.steps.length; n++) {
+          if (task.steps[n].status === 'todo') { task.steps[n].status = 'current'; break; }
+        }
+      }
+      if (task.steps.length === 0) { task.status = 'done'; }
+      await saveData(data);
+      showToast('🗑 ステップ削除');
+      await renderFocusScreen();
+    } else if (action === 'resolve') {
+      // 相手ボール完了 → doneにして全体の完了チェック
+      task.steps[stepIdx].status = 'done';
+
+      // 全ステップ完了チェック
+      var allDone = true;
+      for (var ad = 0; ad < task.steps.length; ad++) {
+        if (task.steps[ad].status !== 'done') { allDone = false; break; }
+      }
+      if (allDone) { task.status = 'done'; }
+
+      await saveData(data);
+      showToast('✓ 返事きた！');
+      await renderFocusScreen();
+    }
+  } catch (e) {
+    showToast('❌ 操作失敗');
+  }
+}
+
+// ── 実行画面のステップ並び替え ──
+async function treeReorderStep(taskId, fromIdx, toIdx) {
+  try {
+    var data = await loadData();
+    var task = null;
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
+    }
+    if (!task) { return; }
+
+    var moved = task.steps.splice(fromIdx, 1)[0];
+    task.steps.splice(toIdx, 0, moved);
+    await saveData(data);
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ 並び替え失敗');
+  }
+}
+
 // ── ツリー開閉 ──
 function toggleTree(panelId, chevId) {
   var panel = document.getElementById(panelId);
   var chev = document.getElementById(chevId);
   if (!panel) return;
   var isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
-  panel.style.maxHeight = isOpen ? '0px' : '500px';
+  panel.style.maxHeight = isOpen ? '0px' : '2000px';
   if (chev) chev.classList.toggle('open', !isOpen);
 }
 
@@ -3378,7 +3532,7 @@ async function renderFocusScreen() {
   var container = document.getElementById('treeContainer');
   container.innerHTML = '';
 
-  var activeTasks = [], doneTasks = [], waitingItems = [];
+  var activeTasks = [], doneTasks = [];
   for (var fi = 0; fi < tasks.length; fi++) {
     if (tasks[fi].status === 'active') activeTasks.push(tasks[fi]);
     else if (tasks[fi].status === 'done') doneTasks.push(tasks[fi]);
@@ -3430,9 +3584,6 @@ async function renderFocusScreen() {
       var doneCount = 0;
       for (var dc = 0; dc < aTask.steps.length; dc++) {
         if (aTask.steps[dc].status === 'done') doneCount++;
-        if (aTask.steps[dc].status === 'waiting') {
-          waitingItems.push({ taskTitle: aTask.title, step: aTask.steps[dc] });
-        }
       }
 
       var parentDiv = document.createElement('div');
@@ -3460,7 +3611,7 @@ async function renderFocusScreen() {
       var childWrap = document.createElement('div');
       childWrap.className = 'children-wrap';
       childWrap.id = panelId;
-      childWrap.style.maxHeight = isCurrentTask ? '500px' : '0px';
+      childWrap.style.maxHeight = isCurrentTask ? '2000px' : '0px';
 
       for (var ci = 0; ci < aTask.steps.length; ci++) {
         var cStep = aTask.steps[ci];
@@ -3485,12 +3636,28 @@ async function renderFocusScreen() {
           dlTag = '<span class="step-dl-tag' + dlClass + '">' + formatDeadlineShort(cStep.deadline) + '</span>';
         }
 
+        // 編集操作ボタン（完了済み以外）
+        var editBtns = '';
+        if (!isDone) {
+          editBtns = '<div class="tree-step-actions">';
+          if (isWaiting) {
+            editBtns += '<button class="tree-mini-btn tree-mini-resolve" data-tree-action="resolve" data-task-id="' + aTask.id + '" data-step-idx="' + ci + '" title="返事きた">✓</button>';
+          }
+          editBtns += '<button class="tree-mini-btn" data-tree-action="dup" data-task-id="' + aTask.id + '" data-step-idx="' + ci + '" title="複製">⧉</button>'
+            + '<button class="tree-mini-btn tree-mini-del" data-tree-action="del-step" data-task-id="' + aTask.id + '" data-step-idx="' + ci + '" title="削除">×</button>'
+            + '</div>';
+        }
+
         var row = document.createElement('div');
         row.className = rowClass;
+        row.setAttribute('data-tree-drag-task', aTask.id);
+        row.setAttribute('data-tree-drag-idx', ci);
         row.innerHTML =
-          '<div class="' + snClass + '">' + (isDone ? '✓' : (ci+1)) + '</div>'
+          '<div class="tree-drag-handle" draggable="true" data-tree-drag-task="' + aTask.id + '" data-tree-drag-idx="' + ci + '">⠿</div>'
+          + '<div class="' + snClass + '">' + (isDone ? '✓' : (ci+1)) + '</div>'
           + '<div class="' + textClass + '">' + cStep.text + dlTag + '</div>'
-          + '<div class="step-right-tree">' + rightContent + '</div>';
+          + '<div class="step-right-tree">' + rightContent + '</div>'
+          + editBtns;
         childWrap.appendChild(row);
       }
 
@@ -3507,7 +3674,7 @@ async function renderFocusScreen() {
 
     container.appendChild(tree);
 
-    // 削除ボタン＋ステップ追加のイベント委譲
+    // ── イベント委譲（削除・ステップ追加・複製・ステップ削除） ──
     tree.addEventListener('click', function(e) {
       var deleteBtn = e.target.closest('[data-delete-id]');
       if (deleteBtn) {
@@ -3519,28 +3686,128 @@ async function renderFocusScreen() {
       if (addBtn) {
         e.stopPropagation();
         addStepToTask(addBtn.getAttribute('data-add-task-id'));
+        return;
+      }
+      var actionBtn = e.target.closest('[data-tree-action]');
+      if (actionBtn) {
+        e.stopPropagation();
+        var treeAction = actionBtn.getAttribute('data-tree-action');
+        var taskId = actionBtn.getAttribute('data-task-id');
+        var stepIdx = parseInt(actionBtn.getAttribute('data-step-idx'));
+        handleTreeStepAction(treeAction, taskId, stepIdx);
       }
     });
-  }
 
-  // ── 相手ボール待ち ──
-  if (waitingItems.length > 0) {
-    var divider = document.createElement('div');
-    divider.className = 'divider';
-    divider.textContent = '相手ボール待ち';
-    container.appendChild(divider);
+    // ── 実行画面D&D ──
+    var treeDragTaskId = null;
+    var treeDragIdx = null;
 
-    for (var wi = 0; wi < waitingItems.length; wi++) {
-      var wRow = document.createElement('div');
-      wRow.className = 'wait-row';
-      wRow.innerHTML =
-        '<div class="wait-icon">👤</div>'
-        + '<div class="wait-info">'
-        + '<div class="wait-title">' + waitingItems[wi].step.text + '</div>'
-        + '<div class="wait-sub">⏳ ' + waitingItems[wi].taskTitle + '・' + waitingItems[wi].step.ball + '</div>'
-        + '</div>';
-      container.appendChild(wRow);
-    }
+    tree.addEventListener('dragstart', function(e) {
+      var handle = e.target.closest('.tree-drag-handle');
+      if (!handle) { e.preventDefault(); return; }
+      treeDragTaskId = handle.getAttribute('data-tree-drag-task');
+      treeDragIdx = parseInt(handle.getAttribute('data-tree-drag-idx'));
+      var row = handle.closest('.step-row');
+      if (row) { row.classList.add('dragging'); }
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    tree.addEventListener('dragend', function() {
+      var all = tree.querySelectorAll('.dragging');
+      for (var i = 0; i < all.length; i++) { all[i].classList.remove('dragging'); }
+      var overs = tree.querySelectorAll('.drag-over');
+      for (var j = 0; j < overs.length; j++) { overs[j].classList.remove('drag-over'); }
+      treeDragTaskId = null;
+      treeDragIdx = null;
+    });
+
+    tree.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      var row = e.target.closest('.step-row[data-tree-drag-task]');
+      if (!row) { return; }
+      var overTaskId = row.getAttribute('data-tree-drag-task');
+      if (!treeDragTaskId || overTaskId !== treeDragTaskId) { return; }
+      e.dataTransfer.dropEffect = 'move';
+      var overs = tree.querySelectorAll('.drag-over');
+      for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+      row.classList.add('drag-over');
+    });
+
+    tree.addEventListener('drop', function(e) {
+      e.preventDefault();
+      var row = e.target.closest('.step-row[data-tree-drag-task]');
+      if (!row) { return; }
+      var dropTaskId = row.getAttribute('data-tree-drag-task');
+      var dropIdx = parseInt(row.getAttribute('data-tree-drag-idx'));
+      if (!treeDragTaskId || treeDragTaskId !== dropTaskId || treeDragIdx === dropIdx) { return; }
+      treeReorderStep(treeDragTaskId, treeDragIdx, dropIdx);
+    });
+
+    // ── タッチD&D（モバイル） ──
+    var touchTaskId = null;
+    var touchIdx = null;
+    var touchRow = null;
+    var touchTimerTree = null;
+    var touchActiveTree = false;
+
+    tree.addEventListener('touchstart', function(e) {
+      var handle = e.target.closest('.tree-drag-handle');
+      if (!handle) { return; }
+      var row = handle.closest('.step-row');
+      if (!row) { return; }
+      touchTaskId = handle.getAttribute('data-tree-drag-task');
+      touchIdx = parseInt(handle.getAttribute('data-tree-drag-idx'));
+      touchRow = row;
+      touchTimerTree = setTimeout(function() {
+        touchActiveTree = true;
+        row.classList.add('dragging');
+      }, 200);
+    }, { passive: true });
+
+    tree.addEventListener('touchmove', function(e) {
+      if (!touchActiveTree) { clearTimeout(touchTimerTree); return; }
+      e.preventDefault();
+      var touch = e.touches[0];
+      var el = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (!el) { return; }
+      var overRow = el.closest('.step-row[data-tree-drag-task]');
+      var overs = tree.querySelectorAll('.drag-over');
+      for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+      if (overRow && overRow.getAttribute('data-tree-drag-task') === touchTaskId) {
+        overRow.classList.add('drag-over');
+      }
+    }, { passive: false });
+
+    tree.addEventListener('touchend', function() {
+      clearTimeout(touchTimerTree);
+      var allD = tree.querySelectorAll('.dragging');
+      for (var d = 0; d < allD.length; d++) { allD[d].classList.remove('dragging'); }
+      var overs = tree.querySelectorAll('.drag-over');
+      for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+
+      if (!touchActiveTree) { touchRow = null; touchTaskId = null; touchIdx = null; return; }
+      touchActiveTree = false;
+
+      var dropRow = overs.length > 0 ? overs[0] : null;
+      if (dropRow) {
+        var dropTaskId2 = dropRow.getAttribute('data-tree-drag-task');
+        var dropIdx2 = parseInt(dropRow.getAttribute('data-tree-drag-idx'));
+        if (touchTaskId === dropTaskId2 && touchIdx !== dropIdx2) {
+          treeReorderStep(touchTaskId, touchIdx, dropIdx2);
+        }
+      }
+      touchTaskId = null; touchIdx = null; touchRow = null;
+    });
+
+    tree.addEventListener('touchcancel', function() {
+      clearTimeout(touchTimerTree);
+      touchActiveTree = false;
+      var allD = tree.querySelectorAll('.dragging');
+      for (var d = 0; d < allD.length; d++) { allD[d].classList.remove('dragging'); }
+      var overs = tree.querySelectorAll('.drag-over');
+      for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+      touchTaskId = null; touchIdx = null; touchRow = null;
+    });
   }
 
   // ── 完了済み ──
