@@ -3312,7 +3312,7 @@ async function resolveWaitingStep(taskId, stepIdx) {
     showToast('✓ 返事きた！');
     await renderFocusScreen();
   } catch (e) {
-    showToast('❌ 操作失敗');
+    showToast('❌ 操作失敗: ' + (e.message || String(e)));
   }
 }
 
@@ -3480,7 +3480,7 @@ async function handleTreeStepAction(action, taskId, stepIdx) {
       await renderFocusScreen();
     }
   } catch (e) {
-    showToast('❌ 操作失敗');
+    showToast('❌ 操作失敗: ' + (e.message || String(e)));
   }
 }
 
@@ -3615,6 +3615,9 @@ async function renderFocusScreen() {
     if (!dlB) return -1;
     return dlA < dlB ? -1 : dlA > dlB ? 1 : 0;
   });
+
+  // ツリー描画用にcurrentステップも特定しておく
+  var current = findCurrentStep(tasks);
 
   var nowZone = document.getElementById('nowZone');
   var allDoneZone = document.getElementById('allDoneZone');
