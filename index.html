@@ -826,6 +826,28 @@ input[type="date"] {
   align-items: center;
   gap: 5px;
 }
+.now-pill-waiting {
+  background: var(--orange);
+  color: #000;
+}
+.pass-name-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.pass-name-input {
+  flex: 1;
+  min-width: 120px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  outline: none;
+}
+.pass-name-input:focus { border-color: var(--green); }
 .pulse-dot {
   width: 5px; height: 5px;
   background: #000;
@@ -1546,7 +1568,7 @@ input[type="date"] {
     <!-- Now Zone -->
     <div class="now-zone" id="nowZone" style="display:none">
       <div class="now-header">
-        <div class="now-pill"><div class="pulse-dot"></div>今やること</div>
+        <div class="now-pill" id="nowPill"><div class="pulse-dot"></div>今やること</div>
       </div>
       <div class="now-task-name" id="nowTaskName">-</div>
       <div class="now-parent-info" id="nowParentInfo">-</div>
@@ -1568,7 +1590,7 @@ input[type="date"] {
           <div class="meta-value" id="nowStepDeadline">-</div>
         </div>
       </div>
-      <div class="now-actions">
+      <div class="now-actions" id="nowActions">
         <button class="act-btn act-done" onclick="completeCurrentStep()">✓ 完了</button>
         <button class="act-btn act-pass" onclick="passCurrentStep()">⇢ 渡した</button>
         <button class="act-btn act-skip" onclick="skipCurrentStep()">後回し</button>
@@ -3077,6 +3099,20 @@ function findCurrentStep(tasks) {
   return null;
 }
 
+// ── 次の待機中ステップを探す ──
+function findNextWaitingStep(tasks) {
+  if (!tasks) return null;
+  for (var ti = 0; ti < tasks.length; ti++) {
+    if (tasks[ti].status !== 'active') continue;
+    for (var si = 0; si < tasks[ti].steps.length; si++) {
+      if (tasks[ti].steps[si].status === 'waiting') {
+        return { task: tasks[ti], step: tasks[ti].steps[si], stepIndex: si };
+      }
+    }
+  }
+  return null;
+}
+
 // ── 次の自分ボールステップに進む ──
 // 現在のステップを完了にし、次の自分ボールを探してcurrentにする
 // 受け取るもの：data, taskId, stepId
@@ -3160,12 +3196,38 @@ async function completeCurrentStep() {
 
 // ── 渡したボタン ──
 async function passCurrentStep() {
+  // 名前入力UIを表示
+  var actionsEl = document.getElementById('nowActions');
+  actionsEl.innerHTML = '<div class="pass-name-row">'
+    + '<input type="text" class="pass-name-input" id="passNameInput" placeholder="相手の名前（任意）" />'
+    + '<button class="act-btn act-done" id="passConfirmBtn">⇢ 渡す</button>'
+    + '<button class="act-btn act-skip" id="passCancelBtn">戻る</button>'
+    + '</div>';
+
+  document.getElementById('passNameInput').focus();
+
+  document.getElementById('passConfirmBtn').addEventListener('click', function() {
+    var name = document.getElementById('passNameInput').value.trim();
+    doPassCurrentStep(name);
+  });
+  document.getElementById('passNameInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var name = document.getElementById('passNameInput').value.trim();
+      doPassCurrentStep(name);
+    }
+  });
+  document.getElementById('passCancelBtn').addEventListener('click', function() {
+    renderFocusScreen();
+  });
+}
+
+async function doPassCurrentStep(personName) {
   try {
     var data = await loadData();
     var current = findCurrentStep(data.tasks);
     if (!current) return;
 
-    // 対象のステップをwaitingに
     var task = null;
     for (var i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id === current.task.id) { task = data.tasks[i]; break; }
@@ -3175,7 +3237,7 @@ async function passCurrentStep() {
       if (task.steps[j].id === current.step.id) { step = task.steps[j]; break; }
     }
     step.status = 'waiting';
-    step.ball = '相手';
+    step.ball = personName ? '相手：' + personName : '相手';
 
     // 次の自分ボールを探す
     var foundNext = false;
@@ -3200,11 +3262,50 @@ async function passCurrentStep() {
       }
     }
 
+    var toastName = personName ? personName + 'に' : '相手に';
     await saveData(data);
-    showToast('⇢ 相手に渡しました');
+    showToast('⇢ ' + toastName + '渡しました');
     await renderFocusScreen();
   } catch (e) {
     showToast('❌ エラー：' + (e.message || String(e)));
+  }
+}
+
+// ── 待機中ステップを完了にする（今やること欄から） ──
+async function resolveWaitingStep(taskId, stepIdx) {
+  try {
+    var data = await loadData();
+    var task = null;
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
+    }
+    if (!task || stepIdx < 0 || stepIdx >= task.steps.length) { return; }
+
+    task.steps[stepIdx].status = 'done';
+
+    // 次のtodoをcurrentに
+    var hasCurrent = false;
+    for (var c = 0; c < task.steps.length; c++) {
+      if (task.steps[c].status === 'current') { hasCurrent = true; break; }
+    }
+    if (!hasCurrent) {
+      for (var n = 0; n < task.steps.length; n++) {
+        if (task.steps[n].status === 'todo') { task.steps[n].status = 'current'; break; }
+      }
+    }
+
+    // 全ステップ完了チェック
+    var allDone = true;
+    for (var ad = 0; ad < task.steps.length; ad++) {
+      if (task.steps[ad].status !== 'done') { allDone = false; break; }
+    }
+    if (allDone) { task.status = 'done'; }
+
+    await saveData(data);
+    showToast('✓ 返事きた！');
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ 操作失敗');
   }
 }
 
@@ -3478,6 +3579,15 @@ async function renderFocusScreen() {
     nowZone.style.display = 'block';
     allDoneZone.style.display = 'none';
 
+    // ピルをデフォルトに戻す
+    document.getElementById('nowPill').textContent = '今やること';
+    document.getElementById('nowPill').className = 'now-pill';
+    // アクションボタンをデフォルトに戻す
+    var actionsEl = document.getElementById('nowActions');
+    actionsEl.innerHTML = '<button class="act-btn act-done" onclick="completeCurrentStep()">✓ 完了</button>'
+      + '<button class="act-btn act-pass" onclick="passCurrentStep()">⇢ 渡した</button>'
+      + '<button class="act-btn act-skip" onclick="skipCurrentStep()">後回し</button>';
+
     document.getElementById('nowTaskName').textContent = current.step.text;
     document.getElementById('nowParentInfo').textContent =
       current.task.emoji + ' ' + current.task.title + ' › ステップ ' + (current.stepIndex + 1) + '/' + current.task.steps.length;
@@ -3501,18 +3611,56 @@ async function renderFocusScreen() {
       sdEl.className = 'meta-value';
     }
   } else {
-    nowZone.style.display = 'none';
-    var hasActive = false;
-    for (var i = 0; i < tasks.length; i++) {
-      if (tasks[i].status === 'active') { hasActive = true; break; }
-    }
-    allDoneZone.style.display = 'flex';
-    if (hasActive) {
-      document.querySelector('.all-done-title').textContent = '自分ボール完了！';
-      document.querySelector('.all-done-sub').textContent = '相手からの返事を待ちましょう。';
+    // currentがない場合 → 待機中ステップを表示
+    var waiting = findNextWaitingStep(tasks);
+    if (waiting) {
+      // 相手ボール待ちを「今やること」欄に表示
+      nowZone.style.display = 'block';
+      allDoneZone.style.display = 'none';
+
+      document.getElementById('nowPill').textContent = '⏳ 相手の返事待ち';
+      document.getElementById('nowPill').className = 'now-pill now-pill-waiting';
+      document.getElementById('nowTaskName').textContent = waiting.step.text;
+      document.getElementById('nowParentInfo').textContent =
+        waiting.task.emoji + ' ' + waiting.task.title + ' › ステップ ' + (waiting.stepIndex + 1) + '/' + waiting.task.steps.length;
+      document.getElementById('nowMinutes').textContent = '-';
+
+      var ballEl = document.getElementById('nowBall');
+      ballEl.textContent = waiting.step.ball;
+      ballEl.className = 'meta-value orange';
+
+      document.getElementById('nowDeadline').textContent = waiting.task.deadline;
+
+      var sdEl = document.getElementById('nowStepDeadline');
+      if (waiting.step.deadline) {
+        sdEl.textContent = formatDeadlineShort(waiting.step.deadline);
+        var sdClass = getDeadlineClass(waiting.step.deadline);
+        sdEl.className = 'meta-value' + (sdClass === ' overdue' ? ' red' : sdClass === ' soon' ? ' orange' : '');
+      } else {
+        sdEl.textContent = '-';
+        sdEl.className = 'meta-value';
+      }
+
+      // アクションボタンを「返事きた」に変更
+      var actionsEl = document.getElementById('nowActions');
+      actionsEl.innerHTML = '<button class="act-btn act-done" id="nowResolveBtn">✓ 返事きた</button>';
+      document.getElementById('nowResolveBtn').addEventListener('click', function() {
+        resolveWaitingStep(waiting.task.id, waiting.stepIndex);
+      });
     } else {
-      document.querySelector('.all-done-title').textContent = '全部終わった！';
-      document.querySelector('.all-done-sub').textContent = '今日のタスクはすべて完了。お疲れさまでした！';
+      nowZone.style.display = 'none';
+      var hasActive = false;
+      for (var i = 0; i < tasks.length; i++) {
+        if (tasks[i].status === 'active') { hasActive = true; break; }
+      }
+      allDoneZone.style.display = 'flex';
+      if (hasActive) {
+        document.querySelector('.all-done-title').textContent = '自分ボール完了！';
+        document.querySelector('.all-done-sub').textContent = '相手からの返事を待ちましょう。';
+      } else {
+        document.querySelector('.all-done-title').textContent = '全部終わった！';
+        document.querySelector('.all-done-sub').textContent = '今日のタスクはすべて完了。お疲れさまでした！';
+      }
     }
   }
 
