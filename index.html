@@ -579,10 +579,12 @@ input[type="date"] {
   background: var(--surface2);
   border: 1px solid var(--border);
   color: var(--text);
+  color-scheme: dark;
   padding: 2px 6px;
   border-radius: 99px;
   outline: none;
   max-width: 120px;
+  -webkit-appearance: none;
 }
 .step-deadline-input:focus { border-color: var(--green); }
 
@@ -611,11 +613,13 @@ input[type="date"] {
   background: var(--surface2);
   border: 1px solid var(--border);
   color: var(--text);
+  color-scheme: dark;
   padding: 2px 4px;
   border-radius: 6px;
   outline: none;
   max-width: 110px;
   margin-left: 4px;
+  -webkit-appearance: none;
 }
 .tree-step-dl:focus { border-color: var(--green); }
 
@@ -624,6 +628,7 @@ input[type="date"] {
   background: var(--surface);
   border: 1.5px solid var(--border);
   color: var(--text);
+  color-scheme: dark;
   padding: 10px 12px;
   border-radius: 12px;
   font-size: 14px;
@@ -3164,11 +3169,17 @@ function advanceToNextStep(data, taskId, stepId) {
       if (!hasWaiting) task.status = 'done';
     }
 
-    // 他タスクから探す
+    // 他タスクから探す（ただしそのタスクに既にcurrentがなければ）
     for (var oi = 0; oi < data.tasks.length; oi++) {
       if (foundNext) break;
       var otherTask = data.tasks[oi];
       if (otherTask.status !== 'active' || otherTask.id === taskId) continue;
+      // 既にcurrentがあるタスクはスキップ
+      var otherHasCurrent = false;
+      for (var oc = 0; oc < otherTask.steps.length; oc++) {
+        if (otherTask.steps[oc].status === 'current') { otherHasCurrent = true; break; }
+      }
+      if (otherHasCurrent) continue;
       for (var os = 0; os < otherTask.steps.length; os++) {
         if (otherTask.steps[os].ball === '自分' && otherTask.steps[os].status === 'todo') {
           otherTask.steps[os].status = 'current';
@@ -3259,6 +3270,11 @@ async function doPassCurrentStep(personName, deadline) {
       for (var oi = 0; oi < data.tasks.length; oi++) {
         if (foundNext) break;
         if (data.tasks[oi].status !== 'active' || data.tasks[oi].id === task.id) continue;
+        var oHasCur = false;
+        for (var oc = 0; oc < data.tasks[oi].steps.length; oc++) {
+          if (data.tasks[oi].steps[oc].status === 'current') { oHasCur = true; break; }
+        }
+        if (oHasCur) continue;
         for (var os = 0; os < data.tasks[oi].steps.length; os++) {
           if (data.tasks[oi].steps[os].ball === '自分' && data.tasks[oi].steps[os].status === 'todo') {
             data.tasks[oi].steps[os].status = 'current';
@@ -3346,6 +3362,11 @@ async function skipCurrentStep() {
       for (var oi = 0; oi < data.tasks.length; oi++) {
         if (foundNext) break;
         if (data.tasks[oi].status !== 'active' || data.tasks[oi].id === task.id) continue;
+        var oHasCur2 = false;
+        for (var oc2 = 0; oc2 < data.tasks[oi].steps.length; oc2++) {
+          if (data.tasks[oi].steps[oc2].status === 'current') { oHasCur2 = true; break; }
+        }
+        if (oHasCur2) continue;
         for (var os = 0; os < data.tasks[oi].steps.length; os++) {
           if (data.tasks[oi].steps[os].ball === '自分' && data.tasks[oi].steps[os].status === 'todo') {
             data.tasks[oi].steps[os].status = 'current';
