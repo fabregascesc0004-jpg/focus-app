@@ -3010,6 +3010,7 @@ async function registerTasks() {
           text: step.text || '未設定',
           ball: step.ball || '自分',
           minutes: (typeof step.minutes === 'number') ? step.minutes : 10,
+          deadline: step.deadline || '',
           status: 'todo'
         });
       }
