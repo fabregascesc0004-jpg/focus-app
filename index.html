@@ -13,7 +13,7 @@
 <style>
 /*
  * ============================================================
- * FOCUS 統合版 v1.2
+ * FOCUS v2.4
  * ============================================================
  * ① AI分解画面と実行画面をlocalStorageで繋いだ統合版
  * ② 下部タブナビで画面切替
@@ -1526,6 +1526,30 @@ input[type="date"] {
   margin-top: 20px;
   line-height: 1.6;
 }
+/* ── CONFIRM DIALOG ── */
+.confirm-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+}
+.confirm-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 320px;
+  width: 90%;
+}
+.confirm-msg { color: var(--text); font-size: 14px; margin-bottom: 20px; line-height: 1.6; }
+.confirm-btns { display: flex; gap: 10px; }
+.confirm-btn {
+  flex: 1; padding: 10px; border-radius: 10px; font-size: 14px; font-weight: 700;
+  border: none; cursor: pointer;
+}
+.confirm-cancel { background: var(--surface2); color: var(--muted); }
+.confirm-ok { background: #ff5050; color: #fff; }
+
 </style>
 </head>
 <body>
@@ -1813,7 +1837,7 @@ input[type="date"] {
   <div class="settings-section">
     <div class="settings-title">バージョン情報</div>
     <div class="settings-desc">
-      FOCUS v2.3<br>
+      FOCUS v2.4<br>
       ADHDユーザーのためのタスク管理アプリ
     </div>
   </div>
@@ -1838,7 +1862,7 @@ input[type="date"] {
 
 <script>
 // ============================================================
-// FOCUS 統合版 v1.1 - メインスクリプト（クリーンアップ済み）
+// FOCUS v2.4 - メインスクリプト
 // ============================================================
 // ① すべてのデータ操作はloadData/saveData経由（直接storageを触らない）
 // ② 画面の更新はrenderFocusScreen()を呼べば最新状態に再描画
@@ -1847,10 +1871,10 @@ input[type="date"] {
 // ============================================================
 
 // ── 定数 ──
-var STORAGE_KEY = 'focus_app_data';
-var PROVIDER_KEY = 'focus_ai_provider';   // 'gemini' or 'claude'
-var GEMINI_KEY = 'focus_gemini_key';
-var CLAUDE_KEY = 'focus_claude_key';
+const STORAGE_KEY = 'focus_app_data';
+const PROVIDER_KEY = 'focus_ai_provider';   // 'gemini' or 'claude'
+const GEMINI_KEY = 'focus_gemini_key';
+const CLAUDE_KEY = 'focus_claude_key';
 
 // ── AIプロバイダーの取得・保存 ──
 function getProvider() {
@@ -1863,14 +1887,14 @@ function setProvider(p) {
 
 // ── APIキーの取得 ──
 function getApiKey(provider) {
-  var key = (provider === 'claude') ? CLAUDE_KEY : GEMINI_KEY;
+  let key = (provider === 'claude') ? CLAUDE_KEY : GEMINI_KEY;
   try { return localStorage.getItem(key) || ''; }
   catch (e) { return ''; }
 }
 
 // ── APIキーの保存 ──
 function saveApiKey(provider, value) {
-  var key = (provider === 'claude') ? CLAUDE_KEY : GEMINI_KEY;
+  let key = (provider === 'claude') ? CLAUDE_KEY : GEMINI_KEY;
   try {
     if (value) { localStorage.setItem(key, value); }
     else { localStorage.removeItem(key); }
@@ -1886,10 +1910,10 @@ function isArtifactEnv() {
 // ============================================================
 // ユーザープロフィール（オンボーディングQ&A）
 // ============================================================
-var PROFILE_KEY = 'focus_user_profile';
+const PROFILE_KEY = 'focus_user_profile';
 
 // ── Q&Aの質問定義 ──
-var ONBOARDING_QUESTIONS = [
+const ONBOARDING_QUESTIONS = [
   {
     id: 'job',
     question: '職種と立場を教えて',
@@ -1951,7 +1975,7 @@ var ONBOARDING_QUESTIONS = [
 // ── プロフィールの保存・読み込み ──
 function getProfile() {
   try {
-    var raw = localStorage.getItem(PROFILE_KEY);
+    let raw = localStorage.getItem(PROFILE_KEY);
     if (raw) { return JSON.parse(raw); }
   } catch (e) {}
   return null;
@@ -1970,10 +1994,10 @@ function hasProfile() {
 
 // ── プロフィールからAIプロンプト用テキストを生成 ──
 function buildProfilePrompt() {
-  var p = getProfile();
+  const p = getProfile();
   if (!p) { return ''; }
 
-  var lines = [];
+  const lines = [];
   lines.push('【ユーザー情報】');
   if (p.job) { lines.push('職種・立場：' + p.job); }
   if (p.procrastination) { lines.push('先延ばしの主因：' + p.procrastination); }
@@ -1989,144 +2013,70 @@ function buildProfilePrompt() {
 // ============================================================
 // カテゴリー管理
 // ============================================================
-var CATEGORIES_KEY = 'focus_categories';
-var selectedCategory = '';
+const CATEGORIES_KEY = 'focus_categories';
+let selectedCategory = '';
 
 // ── 職種・立場からデフォルトカテゴリーを生成 ──
+const CATEGORY_RULES = [
+  { keywords: ['医師', '医者', 'ドクター'], cats: ['診療・外来', '書類・カルテ', '学会・研修'] },
+  { keywords: ['看護', 'ナース'], cats: ['患者対応', '記録・申し送り', 'シフト管理'] },
+  { keywords: ['薬剤', '薬局'], cats: ['調剤・服薬指導', '在庫管理', '書類・届出'] },
+  { keywords: ['医療', '病院', 'クリニック'], cats: ['患者対応', '事務・書類', '院内調整'] },
+  { keywords: ['教師', '教員', '先生', '教諭'], cats: ['授業準備', '生徒対応', '校務・会議'] },
+  { keywords: ['塾', '講師'], cats: ['授業・指導', '教材作成', '保護者対応'] },
+  { keywords: ['保育', '幼稚園'], cats: ['保育・活動', '連絡帳・記録', '行事準備'] },
+  { keywords: ['コーチ', '監督', '指導', 'トレーナー', 'インストラクター', 'スポーツ'], cats: ['練習・指導', '選手管理', '試合・大会準備'] },
+  { keywords: ['飲食', 'レストラン', 'カフェ', '料理', 'シェフ', '調理'], cats: ['仕込み・調理', 'シフト・人員', '仕入れ・在庫'] },
+  { keywords: ['接客', 'サービス', 'ホテル', '美容'], cats: ['接客・対応', '予約管理', '売上・報告'] },
+  { keywords: ['不動産'], cats: ['物件案内', '契約・書類', '顧客フォロー'] },
+  { keywords: ['建設', '施工', '現場', '工事', '建築'], cats: ['現場管理', '図面・書類', '業者調整'] },
+  { keywords: ['物流', '配送', '倉庫', '運送', 'ドライバー'], cats: ['配送・集荷', 'ルート管理', '入出庫・在庫'] },
+  { keywords: ['動画', '映像', 'youtube'], cats: ['撮影・編集', '企画・構成', 'SNS・投稿'] },
+  { keywords: ['音楽', 'ミュージシャン', '作曲', 'dtm'], cats: ['制作・作曲', 'レコーディング', '活動・告知'] },
+  { keywords: ['ライター', '編集', '記者', '執筆'], cats: ['執筆・取材', 'リサーチ', '入稿・校正'] },
+  { keywords: ['クリエイター', 'イラスト', '漫画'], cats: ['制作・作業', 'クライアント対応', 'SNS・告知'] },
+  { keywords: ['マーケ', '広報', 'pr', '広告'], cats: ['企画・施策', 'データ分析', 'コンテンツ制作'] },
+  { keywords: ['人事', '採用', '労務'], cats: ['採用・面接', '社内制度', '労務・手続き'] },
+  { keywords: ['法務', 'コンプラ', '契約'], cats: ['契約レビュー', 'コンプライアンス', '社内相談'] },
+  { keywords: ['コンサル'], cats: ['クライアント対応', 'リサーチ・分析', '資料作成'] },
+  { keywords: ['税理士', '会計士'], cats: ['申告・決算', '顧問対応', '書類作成'] },
+  { keywords: ['弁護士', '司法書士', '行政書士'], cats: ['案件対応', '書面作成', '相談・面談'] },
+  { keywords: ['社労士'], cats: ['手続き・届出', '顧問対応', '就業規則'] },
+  { keywords: ['営業'], cats: ['商談・アポ', '資料作成', '社内報告'] },
+  { keywords: ['エンジニア', '開発', 'プログラマ', 'se'], cats: ['開発・実装', 'レビュー・調査', 'ミーティング'] },
+  { keywords: ['デザイナ', 'デザイン', 'ui', 'ux'], cats: ['デザイン制作', 'クライアント対応', 'リサーチ'] },
+  { keywords: ['マネ', '部長', '課長', 'リーダー', '係長'], cats: ['チーム管理', '会議・報告', '意思決定'] },
+  { keywords: ['社長', '代表', '役員', '経営', 'ceo', 'cto'], cats: ['経営判断', '社外対応', '社内統括'] },
+  { keywords: ['事務', '総務', '経理', '財務'], cats: ['書類・手続き', 'データ管理', '社内調整'] },
+  { keywords: ['学生', '大学', '高校', '専門学校'], cats: ['授業・課題', '就活・進路', 'バイト'] },
+  { keywords: ['主婦', '主夫'], cats: ['家事', '子育て', '買い物・手続き'] },
+  { keywords: ['フリー', '個人', '独立', '自営'], cats: ['クライアント業務', '営業・集客', '経理・事務'] },
+];
+
 function getDefaultCategories(job) {
-  var cats = [];
-
-  if (!job) {
-    return ['仕事', 'プライベート'];
+  if (!job) { return ['仕事', 'プライベート']; }
+  const j = job.toLowerCase();
+  for (let i = 0; i < CATEGORY_RULES.length; i++) {
+    const rule = CATEGORY_RULES[i];
+    for (let k = 0; k < rule.keywords.length; k++) {
+      if (j.indexOf(rule.keywords[k]) !== -1) {
+        return rule.cats.concat(['プライベート']);
+      }
+    }
   }
-
-  var j = job.toLowerCase();
-
-  // ── 医療系 ──
-  if (j.indexOf('医師') !== -1 || j.indexOf('医者') !== -1 || j.indexOf('ドクター') !== -1) {
-    cats = ['診療・外来', '書類・カルテ', '学会・研修'];
-  } else if (j.indexOf('看護') !== -1 || j.indexOf('ナース') !== -1) {
-    cats = ['患者対応', '記録・申し送り', 'シフト管理'];
-  } else if (j.indexOf('薬剤') !== -1 || j.indexOf('薬局') !== -1) {
-    cats = ['調剤・服薬指導', '在庫管理', '書類・届出'];
-  } else if (j.indexOf('医療') !== -1 || j.indexOf('病院') !== -1 || j.indexOf('クリニック') !== -1) {
-    cats = ['患者対応', '事務・書類', '院内調整'];
-
-  // ── 教育系 ──
-  } else if (j.indexOf('教師') !== -1 || j.indexOf('教員') !== -1 || j.indexOf('先生') !== -1 || j.indexOf('教諭') !== -1) {
-    cats = ['授業準備', '生徒対応', '校務・会議'];
-  } else if (j.indexOf('塾') !== -1 || j.indexOf('講師') !== -1) {
-    cats = ['授業・指導', '教材作成', '保護者対応'];
-  } else if (j.indexOf('保育') !== -1 || j.indexOf('幼稚園') !== -1) {
-    cats = ['保育・活動', '連絡帳・記録', '行事準備'];
-
-  // ── スポーツ指導者 ──
-  } else if (j.indexOf('コーチ') !== -1 || j.indexOf('監督') !== -1 || j.indexOf('指導') !== -1 || j.indexOf('トレーナー') !== -1 || j.indexOf('インストラクター') !== -1 || j.indexOf('スポーツ') !== -1) {
-    cats = ['練習・指導', '選手管理', '試合・大会準備'];
-
-  // ── 飲食・サービス業 ──
-  } else if (j.indexOf('飲食') !== -1 || j.indexOf('レストラン') !== -1 || j.indexOf('カフェ') !== -1 || j.indexOf('料理') !== -1 || j.indexOf('シェフ') !== -1 || j.indexOf('調理') !== -1) {
-    cats = ['仕込み・調理', 'シフト・人員', '仕入れ・在庫'];
-  } else if (j.indexOf('接客') !== -1 || j.indexOf('サービス') !== -1 || j.indexOf('ホテル') !== -1 || j.indexOf('美容') !== -1) {
-    cats = ['接客・対応', '予約管理', '売上・報告'];
-
-  // ── 不動産・建設 ──
-  } else if (j.indexOf('不動産') !== -1) {
-    cats = ['物件案内', '契約・書類', '顧客フォロー'];
-  } else if (j.indexOf('建設') !== -1 || j.indexOf('施工') !== -1 || j.indexOf('現場') !== -1 || j.indexOf('工事') !== -1 || j.indexOf('建築') !== -1) {
-    cats = ['現場管理', '図面・書類', '業者調整'];
-
-  // ── 物流・配送 ──
-  } else if (j.indexOf('物流') !== -1 || j.indexOf('配送') !== -1 || j.indexOf('倉庫') !== -1 || j.indexOf('運送') !== -1 || j.indexOf('ドライバー') !== -1) {
-    cats = ['配送・集荷', 'ルート管理', '入出庫・在庫'];
-
-  // ── クリエイター系 ──
-  } else if (j.indexOf('動画') !== -1 || j.indexOf('映像') !== -1 || j.indexOf('youtube') !== -1) {
-    cats = ['撮影・編集', '企画・構成', 'SNS・投稿'];
-  } else if (j.indexOf('音楽') !== -1 || j.indexOf('ミュージシャン') !== -1 || j.indexOf('作曲') !== -1 || j.indexOf('dtm') !== -1) {
-    cats = ['制作・作曲', 'レコーディング', '活動・告知'];
-  } else if (j.indexOf('ライター') !== -1 || j.indexOf('編集') !== -1 || j.indexOf('記者') !== -1 || j.indexOf('執筆') !== -1) {
-    cats = ['執筆・取材', 'リサーチ', '入稿・校正'];
-  } else if (j.indexOf('クリエイター') !== -1 || j.indexOf('イラスト') !== -1 || j.indexOf('漫画') !== -1) {
-    cats = ['制作・作業', 'クライアント対応', 'SNS・告知'];
-
-  // ── マーケティング・広報 ──
-  } else if (j.indexOf('マーケ') !== -1 || j.indexOf('広報') !== -1 || j.indexOf('pr') !== -1 || j.indexOf('広告') !== -1) {
-    cats = ['企画・施策', 'データ分析', 'コンテンツ制作'];
-
-  // ── 人事・採用 ──
-  } else if (j.indexOf('人事') !== -1 || j.indexOf('採用') !== -1 || j.indexOf('労務') !== -1) {
-    cats = ['採用・面接', '社内制度', '労務・手続き'];
-
-  // ── 法務・コンプライアンス ──
-  } else if (j.indexOf('法務') !== -1 || j.indexOf('コンプラ') !== -1 || j.indexOf('契約') !== -1) {
-    cats = ['契約レビュー', 'コンプライアンス', '社内相談'];
-
-  // ── コンサル・士業 ──
-  } else if (j.indexOf('コンサル') !== -1) {
-    cats = ['クライアント対応', 'リサーチ・分析', '資料作成'];
-  } else if (j.indexOf('税理士') !== -1 || j.indexOf('会計士') !== -1) {
-    cats = ['申告・決算', '顧問対応', '書類作成'];
-  } else if (j.indexOf('弁護士') !== -1 || j.indexOf('司法書士') !== -1 || j.indexOf('行政書士') !== -1) {
-    cats = ['案件対応', '書面作成', '相談・面談'];
-  } else if (j.indexOf('社労士') !== -1) {
-    cats = ['手続き・届出', '顧問対応', '就業規則'];
-
-  // ── 営業 ──
-  } else if (j.indexOf('営業') !== -1) {
-    cats = ['商談・アポ', '資料作成', '社内報告'];
-
-  // ── エンジニア・開発 ──
-  } else if (j.indexOf('エンジニア') !== -1 || j.indexOf('開発') !== -1 || j.indexOf('プログラマ') !== -1 || j.indexOf('se') !== -1) {
-    cats = ['開発・実装', 'レビュー・調査', 'ミーティング'];
-
-  // ── デザイナー ──
-  } else if (j.indexOf('デザイナ') !== -1 || j.indexOf('デザイン') !== -1 || j.indexOf('ui') !== -1 || j.indexOf('ux') !== -1) {
-    cats = ['デザイン制作', 'クライアント対応', 'リサーチ'];
-
-  // ── 管理職 ──
-  } else if (j.indexOf('マネ') !== -1 || j.indexOf('部長') !== -1 || j.indexOf('課長') !== -1 || j.indexOf('リーダー') !== -1 || j.indexOf('係長') !== -1) {
-    cats = ['チーム管理', '会議・報告', '意思決定'];
-
-  // ── 経営層 ──
-  } else if (j.indexOf('社長') !== -1 || j.indexOf('代表') !== -1 || j.indexOf('役員') !== -1 || j.indexOf('経営') !== -1 || j.indexOf('ceo') !== -1 || j.indexOf('cto') !== -1) {
-    cats = ['経営判断', '社外対応', '社内統括'];
-
-  // ── 事務・バックオフィス ──
-  } else if (j.indexOf('事務') !== -1 || j.indexOf('総務') !== -1 || j.indexOf('経理') !== -1 || j.indexOf('財務') !== -1) {
-    cats = ['書類・手続き', 'データ管理', '社内調整'];
-
-  // ── 学生 ──
-  } else if (j.indexOf('学生') !== -1 || j.indexOf('大学') !== -1 || j.indexOf('高校') !== -1 || j.indexOf('専門学校') !== -1) {
-    cats = ['授業・課題', '就活・進路', 'バイト'];
-
-  // ── 主婦・主夫 ──
-  } else if (j.indexOf('主婦') !== -1 || j.indexOf('主夫') !== -1) {
-    cats = ['家事', '子育て', '買い物・手続き'];
-
-  // ── フリーランス・個人事業 ──
-  } else if (j.indexOf('フリー') !== -1 || j.indexOf('個人') !== -1 || j.indexOf('独立') !== -1 || j.indexOf('自営') !== -1) {
-    cats = ['クライアント業務', '営業・集客', '経理・事務'];
-
-  // ── その他 ──
-  } else {
-    cats = ['メイン業務', '事務・雑務', '連絡・調整'];
-  }
-
-  cats.push('プライベート');
-  return cats;
+  return ['メイン業務', '事務・雑務', '連絡・調整', 'プライベート'];
 }
 
 // ── カテゴリーの保存・読み込み ──
 function getCategories() {
   try {
-    var raw = localStorage.getItem(CATEGORIES_KEY);
+    let raw = localStorage.getItem(CATEGORIES_KEY);
     if (raw) { return JSON.parse(raw); }
   } catch (e) {}
 
   // 初回はプロフィールの職種から生成
-  var p = getProfile();
-  var cats = getDefaultCategories(p ? p.job : '');
+  const p = getProfile();
+  let cats = getDefaultCategories(p ? p.job : '');
   saveCategories(cats);
   return cats;
 }
@@ -2138,13 +2088,13 @@ function saveCategories(cats) {
 
 // ── カテゴリーバーの描画 ──
 function renderCategoryBar() {
-  var bar = document.getElementById('categoryBar');
+  const bar = document.getElementById('categoryBar');
   if (!bar) { return; }
 
-  var cats = getCategories();
-  var html = '';
-  for (var i = 0; i < cats.length; i++) {
-    var sel = (selectedCategory === cats[i]) ? ' selected' : '';
+  let cats = getCategories();
+  let html = '';
+  for (let i = 0; i < cats.length; i++) {
+    let sel = (selectedCategory === cats[i]) ? ' selected' : '';
     html += '<button class="category-chip' + sel + '" data-cat="' + i + '">'
       + cats[i] + '</button>';
   }
@@ -2153,11 +2103,11 @@ function renderCategoryBar() {
   bar.innerHTML = html;
 
   // カテゴリー選択イベント
-  var chips = bar.querySelectorAll('.category-chip');
-  for (var j = 0; j < chips.length; j++) {
+  const chips = bar.querySelectorAll('.category-chip');
+  for (let j = 0; j < chips.length; j++) {
     chips[j].addEventListener('click', function() {
-      var idx = parseInt(this.getAttribute('data-cat'));
-      var clickedCat = cats[idx];
+      let idx = parseInt(this.getAttribute('data-cat'));
+      const clickedCat = cats[idx];
       if (selectedCategory === clickedCat) {
         selectedCategory = '';
       } else {
@@ -2168,7 +2118,7 @@ function renderCategoryBar() {
   }
 
   // 編集ボタン → 設定画面へジャンプ
-  var editBtn = document.getElementById('catEditJump');
+  const editBtn = document.getElementById('catEditJump');
   if (editBtn) {
     editBtn.addEventListener('click', function() {
       switchTab('settings');
@@ -2178,12 +2128,12 @@ function renderCategoryBar() {
 
 // ── 設定画面のカテゴリーエディター描画 ──
 function renderCatEditor() {
-  var listEl = document.getElementById('catList');
+  const listEl = document.getElementById('catList');
   if (!listEl) { return; }
 
-  var cats = getCategories();
-  var html = '';
-  for (var i = 0; i < cats.length; i++) {
+  let cats = getCategories();
+  let html = '';
+  for (let i = 0; i < cats.length; i++) {
     html += '<div class="cat-item">';
     html += '<div class="cat-item-name">' + cats[i] + '</div>';
     if (cats[i] === 'プライベート') {
@@ -2196,12 +2146,12 @@ function renderCatEditor() {
   listEl.innerHTML = html;
 
   // 削除ボタンのイベント
-  var delBtns = listEl.querySelectorAll('.cat-item-del');
-  for (var d = 0; d < delBtns.length; d++) {
+  const delBtns = listEl.querySelectorAll('.cat-item-del');
+  for (let d = 0; d < delBtns.length; d++) {
     delBtns[d].addEventListener('click', function() {
-      var idx = parseInt(this.getAttribute('data-delidx'));
-      var currentCats = getCategories();
-      var removed = currentCats[idx];
+      let idx = parseInt(this.getAttribute('data-delidx'));
+      const currentCats = getCategories();
+      const removed = currentCats[idx];
       currentCats.splice(idx, 1);
       saveCategories(currentCats);
       if (selectedCategory === removed) { selectedCategory = ''; }
@@ -2213,16 +2163,16 @@ function renderCatEditor() {
 
 function addCategory(name) {
   if (!name) { return; }
-  var cats = getCategories();
+  let cats = getCategories();
   // 重複チェック
-  for (var i = 0; i < cats.length; i++) {
+  for (let i = 0; i < cats.length; i++) {
     if (cats[i] === name) {
       showToast('同じ名前のカテゴリーがあります');
       return;
     }
   }
   // プライベートの前に挿入
-  var privIdx = cats.indexOf('プライベート');
+  const privIdx = cats.indexOf('プライベート');
   if (privIdx !== -1) {
     cats.splice(privIdx, 0, name);
   } else {
@@ -2235,8 +2185,8 @@ function addCategory(name) {
 }
 
 // ── オンボーディング画面の制御 ──
-var obCurrentStep = 0;
-var obAnswers = {};
+let obCurrentStep = 0;
+let obAnswers = {};
 
 function startOnboarding() {
   obCurrentStep = 0;
@@ -2246,41 +2196,41 @@ function startOnboarding() {
 }
 
 function renderOnboardingStep() {
-  var q = ONBOARDING_QUESTIONS[obCurrentStep];
-  var total = ONBOARDING_QUESTIONS.length;
+  const q = ONBOARDING_QUESTIONS[obCurrentStep];
+  const total = ONBOARDING_QUESTIONS.length;
 
   // プログレスバー
-  var progressHtml = '';
-  for (var i = 0; i < total; i++) {
+  const progressHtml = '';
+  for (let i = 0; i < total; i++) {
     progressHtml += '<div class="onboarding-progress-dot' + (i <= obCurrentStep ? ' filled' : '') + '"></div>';
   }
   document.getElementById('obProgress').innerHTML = progressHtml;
 
   // 質問エリア
-  var areaEl = document.getElementById('obQuestionArea');
-  var html = '<div class="onboarding-question">' + q.question + '</div>';
+  const areaEl = document.getElementById('obQuestionArea');
+  let html = '<div class="onboarding-question">' + q.question + '</div>';
   if (q.hint) {
     html += '<div class="onboarding-hint">' + q.hint + '</div>';
   }
 
   if (q.type === 'text') {
-    var savedVal = obAnswers[q.id] || '';
+    const savedVal = obAnswers[q.id] || '';
     html += '<input class="onboarding-input" id="obTextInput" type="text"'
       + ' placeholder="' + q.placeholder + '"'
       + ' value="' + savedVal + '">';
   } else if (q.type === 'single') {
     html += '<div class="onboarding-options">';
-    for (var j = 0; j < q.options.length; j++) {
-      var sel = (obAnswers[q.id] === q.options[j]) ? ' selected' : '';
+    for (let j = 0; j < q.options.length; j++) {
+      let sel = (obAnswers[q.id] === q.options[j]) ? ' selected' : '';
       html += '<button class="onboarding-opt' + sel + '" data-val="' + j + '">'
         + q.options[j] + '</button>';
     }
     html += '</div>';
   } else if (q.type === 'multi') {
-    var selectedArr = obAnswers[q.id] || [];
+    const selectedArr = obAnswers[q.id] || [];
     html += '<div class="onboarding-options">';
-    for (var k = 0; k < q.options.length; k++) {
-      var msel = (selectedArr.indexOf(q.options[k]) !== -1) ? ' selected' : '';
+    for (let k = 0; k < q.options.length; k++) {
+      const msel = (selectedArr.indexOf(q.options[k]) !== -1) ? ' selected' : '';
       html += '<button class="onboarding-opt multi' + msel + '" data-val="' + k + '">'
         + q.options[k] + '</button>';
     }
@@ -2291,26 +2241,26 @@ function renderOnboardingStep() {
 
   // イベント登録
   if (q.type === 'single') {
-    var opts = areaEl.querySelectorAll('.onboarding-opt');
-    for (var oi = 0; oi < opts.length; oi++) {
+    const opts = areaEl.querySelectorAll('.onboarding-opt');
+    for (let oi = 0; oi < opts.length; oi++) {
       opts[oi].addEventListener('click', function() {
-        var idx = parseInt(this.getAttribute('data-val'));
+        let idx = parseInt(this.getAttribute('data-val'));
         obAnswers[q.id] = q.options[idx];
         // 選択状態を更新
-        var allOpts = areaEl.querySelectorAll('.onboarding-opt');
-        for (var x = 0; x < allOpts.length; x++) { allOpts[x].classList.remove('selected'); }
+        const allOpts = areaEl.querySelectorAll('.onboarding-opt');
+        for (let x = 0; x < allOpts.length; x++) { allOpts[x].classList.remove('selected'); }
         this.classList.add('selected');
         updateObNextBtn();
       });
     }
   } else if (q.type === 'multi') {
-    var mopts = areaEl.querySelectorAll('.onboarding-opt');
-    for (var mi = 0; mi < mopts.length; mi++) {
+    const mopts = areaEl.querySelectorAll('.onboarding-opt');
+    for (let mi = 0; mi < mopts.length; mi++) {
       mopts[mi].addEventListener('click', function() {
-        var idx = parseInt(this.getAttribute('data-val'));
-        var arr = obAnswers[q.id] || [];
-        var val = q.options[idx];
-        var pos = arr.indexOf(val);
+        let idx = parseInt(this.getAttribute('data-val'));
+        const arr = obAnswers[q.id] || [];
+        let val = q.options[idx];
+        const pos = arr.indexOf(val);
         if (pos === -1) { arr.push(val); } else { arr.splice(pos, 1); }
         obAnswers[q.id] = arr;
         this.classList.toggle('selected');
@@ -2318,7 +2268,7 @@ function renderOnboardingStep() {
       });
     }
   } else if (q.type === 'text') {
-    var inp = document.getElementById('obTextInput');
+    let inp = document.getElementById('obTextInput');
     inp.addEventListener('input', function() {
       obAnswers[q.id] = this.value.trim();
       updateObNextBtn();
@@ -2330,7 +2280,7 @@ function renderOnboardingStep() {
   document.getElementById('obBack').style.display = (obCurrentStep === 0) ? 'none' : 'block';
 
   // 最後の質問なら「はじめる」ボタン
-  var nextBtn = document.getElementById('obNext');
+  const nextBtn = document.getElementById('obNext');
   if (obCurrentStep === total - 1) {
     nextBtn.textContent = 'はじめる！';
   } else {
@@ -2341,9 +2291,9 @@ function renderOnboardingStep() {
 }
 
 function updateObNextBtn() {
-  var q = ONBOARDING_QUESTIONS[obCurrentStep];
-  var btn = document.getElementById('obNext');
-  var answered = false;
+  const q = ONBOARDING_QUESTIONS[obCurrentStep];
+  const btn = document.getElementById('obNext');
+  let answered = false;
 
   if (q.type === 'text') {
     answered = !!(obAnswers[q.id] && obAnswers[q.id].length > 0);
@@ -2356,7 +2306,7 @@ function updateObNextBtn() {
 }
 
 function finishOnboarding() {
-  var profile = {
+  const profile = {
     job: obAnswers.job || '',
     procrastination: obAnswers.procrastination || '',
     focusMinutes: obAnswers.focusMinutes || '',
@@ -2367,7 +2317,7 @@ function finishOnboarding() {
   saveProfile(profile);
 
   // 職種・立場からカテゴリーを再生成
-  var cats = getDefaultCategories(profile.job);
+  let cats = getDefaultCategories(profile.job);
   saveCategories(cats);
   selectedCategory = '';
   renderCategoryBar();
@@ -2395,20 +2345,20 @@ function generateId(prefix) {
 }
 
 // ── インメモリフォールバック用 ──
-var _inMemoryData = null;
+let _inMemoryData = null;
 
 // ── データ読み込み（async） ──
 // localStorage → window.storage(Artifact環境) → インメモリの3段フォールバック
 // 受け取るもの：なし
 // 返すもの：Promise<{ tasks: Task[], updatedAt: string }>
 async function loadData() {
-  var EMPTY = { tasks: [], updatedAt: new Date().toISOString() };
+  const EMPTY = { tasks: [], updatedAt: new Date().toISOString() };
 
   // ① localStorage（通常のブラウザ環境）
   try {
-    var raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      var parsed = JSON.parse(raw);
+      let parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.tasks)) return parsed;
     }
   } catch (e) { /* localStorage使用不可 → 次へ */ }
@@ -2416,9 +2366,9 @@ async function loadData() {
   // ② window.storage API（Artifact環境の永続ストレージ）
   if (window.storage && typeof window.storage.get === 'function') {
     try {
-      var result = await window.storage.get(STORAGE_KEY);
+      const result = await window.storage.get(STORAGE_KEY);
       if (result && result.value) {
-        var parsed2 = JSON.parse(result.value);
+        const parsed2 = JSON.parse(result.value);
         if (parsed2 && Array.isArray(parsed2.tasks)) return parsed2;
       }
     } catch (e) { /* キー未存在 → 正常 */ }
@@ -2463,26 +2413,47 @@ async function saveData(data) {
 
 // ── ヘッダー更新 ──
 function updateHeaderBadge(data) {
-  var count = 0;
-  for (var i = 0; i < data.tasks.length; i++) {
+  const count = 0;
+  for (let i = 0; i < data.tasks.length; i++) {
     if (data.tasks[i].status === 'active') count++;
   }
   document.getElementById('headerBadge').textContent = count + ' タスク';
 }
 
 function updateHeaderDate() {
-  var now = new Date();
-  var days = ['日','月','火','水','木','金','土'];
+  const now = new Date();
+  const days = ['日','月','火','水','木','金','土'];
   document.getElementById('headerDate').textContent =
     (now.getMonth()+1) + '月' + now.getDate() + '日（' + days[now.getDay()] + '）';
 }
 
 // ── Toast通知 ──
 function showToast(msg) {
-  var el = document.getElementById('toast');
+  let el = document.getElementById('toast');
   el.textContent = msg;
   el.classList.add('show');
   setTimeout(function() { el.classList.remove('show'); }, 2000);
+}
+
+// ── 独自確認ダイアログ（confirm()代替） ──
+function showConfirmDialog(message, onConfirm) {
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = '<div class="confirm-box">'
+    + '<div class="confirm-msg">' + message + '</div>'
+    + '<div class="confirm-btns">'
+    + '<button class="confirm-btn confirm-cancel">キャンセル</button>'
+    + '<button class="confirm-btn confirm-ok">OK</button>'
+    + '</div></div>';
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('.confirm-cancel').addEventListener('click', function() {
+    document.body.removeChild(overlay);
+  });
+  overlay.querySelector('.confirm-ok').addEventListener('click', function() {
+    document.body.removeChild(overlay);
+    onConfirm();
+  });
 }
 
 // ============================================================
@@ -2495,8 +2466,8 @@ async function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
 
-  var screenEl = document.getElementById('screen-' + tab);
-  var tabEl = document.getElementById('tab-' + tab);
+  const screenEl = document.getElementById('screen-' + tab);
+  const tabEl = document.getElementById('tab-' + tab);
   if (screenEl) screenEl.classList.add('active');
   if (tabEl) tabEl.classList.add('active');
 
@@ -2512,17 +2483,17 @@ async function switchTab(tab) {
 // 分解画面のロジック
 // ============================================================
 
-var parsedTasks = [];
+let parsedTasks = [];
 
 function fillExample(el) {
-  var text = el.innerText.replace(/例 \d\n/, '').trim();
+  let text = el.innerText.replace(/例 \d\n/, '').trim();
   document.getElementById('taskInput').value = text;
 }
 
 function setDecomposeStep(active) {
   [1,2,3].forEach(function(i) {
-    var num = document.getElementById('sn'+i);
-    var label = document.getElementById('sl'+i);
+    const num = document.getElementById('sn'+i);
+    const label = document.getElementById('sl'+i);
     if (i < active) {
       num.className = 'step-ind-num done';
       num.textContent = '✓';
@@ -2541,8 +2512,8 @@ function setDecomposeStep(active) {
 
 // ── AI分解実行 ──
 async function startDecompose() {
-  var input = document.getElementById('taskInput').value.trim();
-  var errorMsg = document.getElementById('errorMsg');
+  const input = document.getElementById('taskInput').value.trim();
+  const errorMsg = document.getElementById('errorMsg');
 
   if (!input) {
     errorMsg.textContent = 'タスクを入力してください';
@@ -2551,19 +2522,19 @@ async function startDecompose() {
   }
   errorMsg.style.display = 'none';
 
-  var deadline = document.getElementById('deadline').value;
-  var deadlineText = deadline ? '締切：' + deadline : '締切：未設定';
+  let deadline = document.getElementById('deadline').value;
+  const deadlineText = deadline ? '締切：' + deadline : '締切：未設定';
 
   // Thinking表示
   document.getElementById('phase1').style.display = 'none';
   document.getElementById('aiThinking').style.display = 'flex';
   setDecomposeStep(2);
 
-  var thinkingMessages = ['タスクを抽出しています...', 'ステップに分解しています...', '優先順位を判定しています...', 'ボールを確認しています...'];
-  var messageIndex = 0;
-  var stepEl = document.getElementById('thinkingStep');
+  const thinkingMessages = ['タスクを抽出しています...', 'ステップに分解しています...', '優先順位を判定しています...', 'ボールを確認しています...'];
+  let messageIndex = 0;
+  const stepEl = document.getElementById('thinkingStep');
   stepEl.style.opacity = '1';
-  var stepInterval = setInterval(function() {
+  const stepInterval = setInterval(function() {
     messageIndex = (messageIndex + 1) % thinkingMessages.length;
     stepEl.style.opacity = '0';
     setTimeout(function() {
@@ -2574,10 +2545,10 @@ async function startDecompose() {
 
   try {
     // ── プロフィール情報をプロンプトに注入 ──
-    var profilePrompt = buildProfilePrompt();
-    var categoryText = selectedCategory ? '【カテゴリー】' + selectedCategory + '\nこのカテゴリーに適した分解をせよ。\n' : '';
+    const profilePrompt = buildProfilePrompt();
+    const categoryText = selectedCategory ? '【カテゴリー】' + selectedCategory + '\nこのカテゴリーに適した分解をせよ。\n' : '';
 
-    var promptText = 'タスク分解AI。入力からタスクを抽出し、実行順に小さなステップに分解せよ。\n\n'
+    const promptText = 'タスク分解AI。入力からタスクを抽出し、実行順に小さなステップに分解せよ。\n\n'
       + '今日の日付：' + new Date().toISOString().slice(0, 10) + '\n\n'
       + (profilePrompt ? profilePrompt + '\n\n' : '')
       + (categoryText ? categoryText + '\n' : '')
@@ -2597,8 +2568,8 @@ async function startDecompose() {
       + '- 締切が不明な場合はステップのdeadlineも空文字';
 
     // ── AIプロバイダーの判定とAPI呼び出し ──
-    var provider = getProvider();
-    var apiKey = getApiKey(provider);
+    let provider = getProvider();
+    const apiKey = getApiKey(provider);
 
     // Artifact環境（claude.ai内）ではClaude APIがキー不要で使える
     if (isArtifactEnv() && !apiKey) {
@@ -2614,10 +2585,10 @@ async function startDecompose() {
       return;
     }
 
-    var response;
+    let response;
     if (provider === 'gemini') {
       // ── Gemini API呼び出し ──
-      var geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+      const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
       response = await fetch(geminiUrl, {
         method: 'POST',
         headers: {
@@ -2630,7 +2601,7 @@ async function startDecompose() {
       });
     } else {
       // ── Claude API呼び出し ──
-      var claudeHeaders = { 'Content-Type': 'application/json' };
+      const claudeHeaders = { 'Content-Type': 'application/json' };
       if (apiKey) {
         claudeHeaders['x-api-key'] = apiKey;
         claudeHeaders['anthropic-version'] = '2023-06-01';
@@ -2649,7 +2620,7 @@ async function startDecompose() {
     clearInterval(stepInterval);
 
     if (!response.ok) {
-      var errorBody = '';
+      let errorBody = '';
       try { errorBody = await response.text(); } catch(e2) {}
       if (response.status === 403 || response.status === 401) {
         throw new Error('APIキーが無効です。設定画面で確認してください');
@@ -2657,10 +2628,10 @@ async function startDecompose() {
       throw new Error('API応答エラー (' + response.status + ')');
     }
 
-    var data = await response.json();
+    let data = await response.json();
 
     // ── レスポンスからテキストを抽出（プロバイダー別） ──
-    var rawText = '';
+    let rawText = '';
     if (provider === 'gemini') {
       // Gemini: candidates[0].content.parts[0].text
       if (!data.candidates || !data.candidates[0] ||
@@ -2673,8 +2644,8 @@ async function startDecompose() {
       if (!data.content || !Array.isArray(data.content) || data.content.length === 0) {
         throw new Error('Claudeの応答が空です');
       }
-      var textBlock = null;
-      for (var i = 0; i < data.content.length; i++) {
+      let textBlock = null;
+      for (let i = 0; i < data.content.length; i++) {
         if (data.content[i].type === 'text') { textBlock = data.content[i]; break; }
       }
       if (!textBlock || !textBlock.text) {
@@ -2683,22 +2654,22 @@ async function startDecompose() {
       rawText = textBlock.text;
     }
     rawText = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-    var jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('AIの応答からJSONを抽出できませんでした');
 
-    var parsed = JSON.parse(jsonMatch[0]);
+    let parsed = JSON.parse(jsonMatch[0]);
     if (!parsed.tasks || !Array.isArray(parsed.tasks) || parsed.tasks.length === 0) {
       throw new Error('パース結果にtasks配列がありません');
     }
 
     // デフォルト値で補完
-    for (var t = 0; t < parsed.tasks.length; t++) {
-      var task = parsed.tasks[t];
+    for (let t = 0; t < parsed.tasks.length; t++) {
+      let task = parsed.tasks[t];
       if (!task.title) task.title = '無題のタスク';
       if (!task.emoji) task.emoji = '📌';
       if (!task.deadline) task.deadline = '未設定';
       if (!Array.isArray(task.steps)) task.steps = [];
-      for (var s = 0; s < task.steps.length; s++) {
+      for (let s = 0; s < task.steps.length; s++) {
         if (!task.steps[s].text) task.steps[s].text = '（内容未設定）';
         if (!task.steps[s].ball) task.steps[s].ball = '自分';
         if (typeof task.steps[s].minutes !== 'number') task.steps[s].minutes = 10;
@@ -2725,30 +2696,30 @@ async function startDecompose() {
 
 // ── 分解結果のレビュー描画 ──
 function renderReview() {
-  var tree = document.getElementById('taskTree');
+  let tree = document.getElementById('taskTree');
   tree.innerHTML = '';
 
-  for (var ti = 0; ti < parsedTasks.length; ti++) {
-    var task = parsedTasks[ti];
-    var totalMin = 0;
-    for (var m = 0; m < task.steps.length; m++) totalMin += (task.steps[m].minutes || 0);
+  for (let ti = 0; ti < parsedTasks.length; ti++) {
+    let task = parsedTasks[ti];
+    let totalMin = 0;
+    for (let m = 0; m < task.steps.length; m++) totalMin += (task.steps[m].minutes || 0);
 
-    var div = document.createElement('div');
+    const div = document.createElement('div');
     div.className = 'review-parent';
 
-    var stepsHtml = '';
-    for (var si = 0; si < task.steps.length; si++) {
-      var step = task.steps[si];
-      var isSelf = step.ball === '自分';
-      var dlVal = step.deadline || '';
+    const stepsHtml = '';
+    for (let si = 0; si < task.steps.length; si++) {
+      let step = task.steps[si];
+      const isSelf = step.ball === '自分';
+      const dlVal = step.deadline || '';
       // 相手名を抽出（"相手：田中" → "田中"）
-      var ballName = '';
+      let ballName = '';
       if (!isSelf && step.ball.indexOf('：') !== -1) {
         ballName = step.ball.split('：')[1] || '';
       } else if (!isSelf && step.ball.indexOf(':') !== -1) {
         ballName = step.ball.split(':')[1] || '';
       }
-      var nameInput = isSelf ? ''
+      const nameInput = isSelf ? ''
         : '<input type="text" class="ball-name-input" placeholder="相手の名前" value="' + ballName.replace(/"/g, '&quot;') + '" data-ti="' + ti + '" data-si="' + si + '" />';
 
       stepsHtml += '<div class="step-item" data-drag-ti="' + ti + '" data-drag-si="' + si + '">'
@@ -2781,11 +2752,11 @@ function renderReview() {
 
   // イベント委譲でボタンを処理
   tree.onclick = function(e) {
-    var target = e.target.closest('[data-action]');
+    const target = e.target.closest('[data-action]');
     if (!target) return;
-    var action = target.getAttribute('data-action');
-    var ti = parseInt(target.getAttribute('data-ti'));
-    var si = parseInt(target.getAttribute('data-si'));
+    let action = target.getAttribute('data-action');
+    let ti = parseInt(target.getAttribute('data-ti'));
+    let si = parseInt(target.getAttribute('data-si'));
 
     if (action === 'del') {
       parsedTasks[ti].steps.splice(si, 1);
@@ -2794,8 +2765,8 @@ function renderReview() {
       parsedTasks[ti].steps.push({ text: '新しいステップ', ball: '自分', minutes: 10, deadline: '' });
       renderReview();
     } else if (action === 'dup') {
-      var orig = parsedTasks[ti].steps[si];
-      var copy = {
+      let orig = parsedTasks[ti].steps[si];
+      const copy = {
         text: orig.text,
         ball: orig.ball,
         minutes: orig.minutes,
@@ -2807,7 +2778,7 @@ function renderReview() {
       parsedTasks[ti].steps.splice(si + 1, 0, { text: '新しいステップ', ball: '自分', minutes: 10, deadline: '' });
       renderReview();
     } else if (action === 'toggle-ball') {
-      var currentBall = parsedTasks[ti].steps[si].ball;
+      const currentBall = parsedTasks[ti].steps[si].ball;
       if (currentBall === '自分') {
         parsedTasks[ti].steps[si].ball = '相手：';
       } else {
@@ -2820,82 +2791,82 @@ function renderReview() {
   // テキスト編集 + 期限変更 + 相手名の反映
   tree.onchange = function(e) {
     if (e.target.classList.contains('step-editable')) {
-      var ti = parseInt(e.target.getAttribute('data-ti'));
-      var si = parseInt(e.target.getAttribute('data-si'));
+      let ti = parseInt(e.target.getAttribute('data-ti'));
+      let si = parseInt(e.target.getAttribute('data-si'));
       parsedTasks[ti].steps[si].text = e.target.value;
     }
     if (e.target.classList.contains('step-deadline-input')) {
-      var ti2 = parseInt(e.target.getAttribute('data-ti'));
-      var si2 = parseInt(e.target.getAttribute('data-si'));
+      const ti2 = parseInt(e.target.getAttribute('data-ti'));
+      const si2 = parseInt(e.target.getAttribute('data-si'));
       parsedTasks[ti2].steps[si2].deadline = e.target.value;
     }
     if (e.target.classList.contains('ball-name-input')) {
-      var ti3 = parseInt(e.target.getAttribute('data-ti'));
-      var si3 = parseInt(e.target.getAttribute('data-si'));
-      var name = e.target.value.trim();
+      const ti3 = parseInt(e.target.getAttribute('data-ti'));
+      const si3 = parseInt(e.target.getAttribute('data-si'));
+      let name = e.target.value.trim();
       parsedTasks[ti3].steps[si3].ball = '相手：' + name;
     }
   };
 
   // ── ドラッグ&ドロップ ──
-  var dragTi = null;
-  var dragSi = null;
+  let dragTi = null;
+  let dragSi = null;
 
   tree.addEventListener('dragstart', function(e) {
-    var handle = e.target.closest('.drag-handle');
+    let handle = e.target.closest('.drag-handle');
     if (!handle) { e.preventDefault(); return; }
     dragTi = parseInt(handle.getAttribute('data-drag-ti'));
     dragSi = parseInt(handle.getAttribute('data-drag-si'));
-    var item = handle.closest('.step-item');
+    let item = handle.closest('.step-item');
     if (item) { item.classList.add('dragging'); }
     e.dataTransfer.effectAllowed = 'move';
   });
 
   tree.addEventListener('dragend', function(e) {
-    var items = tree.querySelectorAll('.step-item.dragging');
-    for (var i = 0; i < items.length; i++) { items[i].classList.remove('dragging'); }
-    var overs = tree.querySelectorAll('.drag-over');
-    for (var j = 0; j < overs.length; j++) { overs[j].classList.remove('drag-over'); }
+    const items = tree.querySelectorAll('.step-item.dragging');
+    for (let i = 0; i < items.length; i++) { items[i].classList.remove('dragging'); }
+    const overs = tree.querySelectorAll('.drag-over');
+    for (let j = 0; j < overs.length; j++) { overs[j].classList.remove('drag-over'); }
     dragTi = null;
     dragSi = null;
   });
 
   tree.addEventListener('dragover', function(e) {
     e.preventDefault();
-    var item = e.target.closest('.step-item');
+    let item = e.target.closest('.step-item');
     if (!item) { return; }
-    var overTi = parseInt(item.getAttribute('data-drag-ti'));
+    const overTi = parseInt(item.getAttribute('data-drag-ti'));
     if (dragTi === null || overTi !== dragTi) { return; }
     e.dataTransfer.dropEffect = 'move';
-    var overs = tree.querySelectorAll('.drag-over');
-    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+    const overs = tree.querySelectorAll('.drag-over');
+    for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
     item.classList.add('drag-over');
   });
 
   tree.addEventListener('drop', function(e) {
     e.preventDefault();
-    var item = e.target.closest('.step-item');
+    let item = e.target.closest('.step-item');
     if (!item) { return; }
-    var dropTi = parseInt(item.getAttribute('data-drag-ti'));
-    var dropSi = parseInt(item.getAttribute('data-drag-si'));
+    let dropTi = parseInt(item.getAttribute('data-drag-ti'));
+    let dropSi = parseInt(item.getAttribute('data-drag-si'));
     if (dragTi === null || dragTi !== dropTi || dragSi === dropSi) { return; }
-    var steps = parsedTasks[dragTi].steps;
-    var moved = steps.splice(dragSi, 1)[0];
+    let steps = parsedTasks[dragTi].steps;
+    let moved = steps.splice(dragSi, 1)[0];
     steps.splice(dropSi, 0, moved);
     renderReview();
   });
 
   // ── タッチベースD&D（モバイル対応） ──
-  var touchDragTi = null;
-  var touchDragSi = null;
-  var touchDragItem = null;
-  var touchTimer = null;
-  var touchActive = false;
+  let touchDragTi = null;
+  let touchDragSi = null;
+  let touchDragItem = null;
+  let touchTimer = null;
+  let touchActive = false;
 
   tree.addEventListener('touchstart', function(e) {
-    var handle = e.target.closest('.drag-handle');
+    let handle = e.target.closest('.drag-handle');
     if (!handle) { return; }
-    var item = handle.closest('.step-item');
+    let item = handle.closest('.step-item');
     if (!item) { return; }
 
     touchDragTi = parseInt(handle.getAttribute('data-drag-ti'));
@@ -2915,13 +2886,13 @@ function renderReview() {
       return;
     }
     e.preventDefault();
-    var touch = e.touches[0];
-    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const touch = e.touches[0];
+    let el = document.elementFromPoint(touch.clientX, touch.clientY);
     if (!el) { return; }
-    var overItem = el.closest('.step-item');
+    const overItem = el.closest('.step-item');
     // 全クリア
-    var overs = tree.querySelectorAll('.drag-over');
-    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+    const overs = tree.querySelectorAll('.drag-over');
+    for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
     if (overItem && parseInt(overItem.getAttribute('data-drag-ti')) === touchDragTi) {
       overItem.classList.add('drag-over');
     }
@@ -2930,11 +2901,14 @@ function renderReview() {
   tree.addEventListener('touchend', function(e) {
     clearTimeout(touchTimer);
 
-    // 全dragging/drag-overを必ずクリア
-    var allDragging = tree.querySelectorAll('.dragging');
-    for (var d = 0; d < allDragging.length; d++) { allDragging[d].classList.remove('dragging'); }
-    var overs = tree.querySelectorAll('.drag-over');
-    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+    // ドロップ先を先に特定（クリア前に）
+    const overs = tree.querySelectorAll('.drag-over');
+    const dropItem = overs.length > 0 ? overs[0] : null;
+
+    // 全dragging/drag-overをクリア
+    const allDragging = tree.querySelectorAll('.dragging');
+    for (let d = 0; d < allDragging.length; d++) { allDragging[d].classList.remove('dragging'); }
+    for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
 
     if (!touchActive) {
       touchDragItem = null;
@@ -2944,15 +2918,12 @@ function renderReview() {
     }
     touchActive = false;
 
-    // ドロップ先の特定
-    var dropItem = overs.length > 0 ? overs[0] : null;
-
     if (dropItem) {
-      var dropTi = parseInt(dropItem.getAttribute('data-drag-ti'));
-      var dropSi = parseInt(dropItem.getAttribute('data-drag-si'));
+      let dropTi = parseInt(dropItem.getAttribute('data-drag-ti'));
+      let dropSi = parseInt(dropItem.getAttribute('data-drag-si'));
       if (touchDragTi === dropTi && touchDragSi !== dropSi) {
-        var steps = parsedTasks[touchDragTi].steps;
-        var movedStep = steps.splice(touchDragSi, 1)[0];
+        let steps = parsedTasks[touchDragTi].steps;
+        const movedStep = steps.splice(touchDragSi, 1)[0];
         steps.splice(dropSi, 0, movedStep);
         renderReview();
       }
@@ -2967,10 +2938,10 @@ function renderReview() {
   tree.addEventListener('touchcancel', function() {
     clearTimeout(touchTimer);
     touchActive = false;
-    var allDragging = tree.querySelectorAll('.dragging');
-    for (var d = 0; d < allDragging.length; d++) { allDragging[d].classList.remove('dragging'); }
-    var overs = tree.querySelectorAll('.drag-over');
-    for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+    const allDragging = tree.querySelectorAll('.dragging');
+    for (let d = 0; d < allDragging.length; d++) { allDragging[d].classList.remove('dragging'); }
+    const overs = tree.querySelectorAll('.drag-over');
+    for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
     touchDragTi = null;
     touchDragSi = null;
     touchDragItem = null;
@@ -2980,13 +2951,14 @@ function renderReview() {
 // ── タスク登録（保存） ──
 // parsedTasksをフォーマット変換してストレージに追記保存する
 async function registerTasks() {
+  console.log('[registerTasks] 開始');
   if (!parsedTasks || parsedTasks.length === 0) {
     showToast('❌ 登録するタスクがありません');
     return;
   }
 
   // Step 1: 既存データ読み込み
-  var data;
+  let data;
   try {
     data = await loadData();
   } catch (e) {
@@ -2995,16 +2967,16 @@ async function registerTasks() {
   }
 
   // Step 2: データ変換
-  var newTasks;
+  let newTasks;
   try {
     newTasks = [];
-    for (var ti = 0; ti < parsedTasks.length; ti++) {
-      var task = parsedTasks[ti];
-      var taskId = generateId('task');
-      var steps = [];
+    for (let ti = 0; ti < parsedTasks.length; ti++) {
+      let task = parsedTasks[ti];
+      let taskId = generateId('task');
+      let steps = [];
 
-      for (var si = 0; si < (task.steps || []).length; si++) {
-        var step = task.steps[si];
+      for (let si = 0; si < (task.steps || []).length; si++) {
+        let step = task.steps[si];
         steps.push({
           id: generateId('step'),
           text: step.text || '未設定',
@@ -3016,11 +2988,11 @@ async function registerTasks() {
       }
 
       // 最初の自分ボールステップをcurrentにする
-      for (var i = 0; i < steps.length; i++) {
+      for (let i = 0; i < steps.length; i++) {
         if (steps[i].ball === '自分') { steps[i].status = 'current'; break; }
       }
       // 相手ボールのステップをwaitingにする
-      for (var j = 0; j < steps.length; j++) {
+      for (let j = 0; j < steps.length; j++) {
         if (steps[j].ball !== '自分' && steps[j].status === 'todo') {
           steps[j].status = 'waiting';
         }
@@ -3051,9 +3023,9 @@ async function registerTasks() {
   }
 
   // Step 4: 統計表示＋画面遷移
-  var totalSteps = 0, selfSteps = 0, totalMin = 0;
-  for (var t = 0; t < newTasks.length; t++) {
-    for (var s = 0; s < newTasks[t].steps.length; s++) {
+  let totalSteps = 0, selfSteps = 0, totalMin = 0;
+  for (let t = 0; t < newTasks.length; t++) {
+    for (let s = 0; s < newTasks[t].steps.length; s++) {
       totalSteps++;
       totalMin += (newTasks[t].steps[s].minutes || 0);
       if (newTasks[t].steps[s].ball === '自分') selfSteps++;
@@ -3097,9 +3069,9 @@ function resetDecompose() {
 // 返すもの：{ task, step, stepIndex } | null
 function findCurrentStep(tasks) {
   if (!tasks) return null;
-  for (var ti = 0; ti < tasks.length; ti++) {
+  for (let ti = 0; ti < tasks.length; ti++) {
     if (tasks[ti].status !== 'active') continue;
-    for (var si = 0; si < tasks[ti].steps.length; si++) {
+    for (let si = 0; si < tasks[ti].steps.length; si++) {
       if (tasks[ti].steps[si].status === 'current') {
         return { task: tasks[ti], step: tasks[ti].steps[si], stepIndex: si };
       }
@@ -3111,9 +3083,9 @@ function findCurrentStep(tasks) {
 // ── 次の待機中ステップを探す ──
 function findNextWaitingStep(tasks) {
   if (!tasks) return null;
-  for (var ti = 0; ti < tasks.length; ti++) {
+  for (let ti = 0; ti < tasks.length; ti++) {
     if (tasks[ti].status !== 'active') continue;
-    for (var si = 0; si < tasks[ti].steps.length; si++) {
+    for (let si = 0; si < tasks[ti].steps.length; si++) {
       if (tasks[ti].steps[si].status === 'waiting') {
         return { task: tasks[ti], step: tasks[ti].steps[si], stepIndex: si };
       }
@@ -3129,14 +3101,14 @@ function findNextWaitingStep(tasks) {
 function advanceToNextStep(data, taskId, stepId) {
   if (!data || !taskId) return data;
 
-  var task = null;
-  for (var i = 0; i < data.tasks.length; i++) {
+  let task = null;
+  for (let i = 0; i < data.tasks.length; i++) {
     if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
   }
   if (!task) return data;
 
-  var stepIdx = -1;
-  for (var j = 0; j < task.steps.length; j++) {
+  let stepIdx = -1;
+  for (let j = 0; j < task.steps.length; j++) {
     if (task.steps[j].id === stepId) { stepIdx = j; break; }
   }
   if (stepIdx < 0) return data;
@@ -3145,8 +3117,8 @@ function advanceToNextStep(data, taskId, stepId) {
   task.steps[stepIdx].status = 'done';
 
   // 同タスク内で次の自分ボールtodoを探す
-  var foundNext = false;
-  for (var k = stepIdx + 1; k < task.steps.length; k++) {
+  let foundNext = false;
+  for (let k = stepIdx + 1; k < task.steps.length; k++) {
     if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
       task.steps[k].status = 'current';
       foundNext = true;
@@ -3156,32 +3128,32 @@ function advanceToNextStep(data, taskId, stepId) {
 
   // 同タスク内になければタスク完了チェック→他タスクから探す
   if (!foundNext) {
-    var hasRemaining = false;
-    for (var m = 0; m < task.steps.length; m++) {
+    let hasRemaining = false;
+    for (let m = 0; m < task.steps.length; m++) {
       if (task.steps[m].status === 'todo' || task.steps[m].status === 'current') {
         hasRemaining = true; break;
       }
     }
     if (!hasRemaining) {
-      var hasWaiting = false;
-      for (var n = 0; n < task.steps.length; n++) {
+      let hasWaiting = false;
+      for (let n = 0; n < task.steps.length; n++) {
         if (task.steps[n].status === 'waiting') { hasWaiting = true; break; }
       }
       if (!hasWaiting) task.status = 'done';
     }
 
     // 他タスクから探す（ただしそのタスクに既にcurrentがなければ）
-    for (var oi = 0; oi < data.tasks.length; oi++) {
+    for (let oi = 0; oi < data.tasks.length; oi++) {
       if (foundNext) break;
-      var otherTask = data.tasks[oi];
+      const otherTask = data.tasks[oi];
       if (otherTask.status !== 'active' || otherTask.id === taskId) continue;
       // 既にcurrentがあるタスクはスキップ
-      var otherHasCurrent = false;
-      for (var oc = 0; oc < otherTask.steps.length; oc++) {
+      let otherHasCurrent = false;
+      for (let oc = 0; oc < otherTask.steps.length; oc++) {
         if (otherTask.steps[oc].status === 'current') { otherHasCurrent = true; break; }
       }
       if (otherHasCurrent) continue;
-      for (var os = 0; os < otherTask.steps.length; os++) {
+      for (let os = 0; os < otherTask.steps.length; os++) {
         if (otherTask.steps[os].ball === '自分' && otherTask.steps[os].status === 'todo') {
           otherTask.steps[os].status = 'current';
           foundNext = true;
@@ -3197,10 +3169,11 @@ function advanceToNextStep(data, taskId, stepId) {
 // ── 完了ボタン ──
 async function completeCurrentStep() {
   try {
-    var data = await loadData();
-    var current = findCurrentStep(data.tasks);
+    let data = await loadData();
+    let current = findCurrentStep(data.tasks);
     if (!current) return;
-    var updated = advanceToNextStep(data, current.task.id, current.step.id);
+    let updated = advanceToNextStep(data, current.task.id, current.step.id);
+    if (!updated) { showToast('❌ 次のステップへの移動に失敗'); return; }
     await saveData(updated);
     showToast('✓ 完了！');
     await renderFocusScreen();
@@ -3211,9 +3184,11 @@ async function completeCurrentStep() {
 
 // ── 特定ステップの完了（期限優先表示用） ──
 async function completeSpecificStep(taskId, stepId) {
+  console.log('[completeSpecificStep]', taskId, stepId);
   try {
-    var data = await loadData();
-    var updated = advanceToNextStep(data, taskId, stepId);
+    let data = await loadData();
+    let updated = advanceToNextStep(data, taskId, stepId);
+    if (!updated) { showToast('❌ 次のステップへの移動に失敗'); return; }
     await saveData(updated);
     showToast('✓ 完了！');
     await renderFocusScreen();
@@ -3225,7 +3200,7 @@ async function completeSpecificStep(taskId, stepId) {
 // ── 特定ステップを渡す（期限優先表示用） ──
 function passSpecificStep(taskId, stepId) {
   // 名前＋期限入力UIを表示
-  var actionsEl = document.getElementById('nowActions');
+  const actionsEl = document.getElementById('nowActions');
   actionsEl.innerHTML = '<div class="pass-name-row">'
     + '<input type="text" class="pass-name-input" id="passNameInput" placeholder="相手の名前（任意）" />'
     + '<input type="date" class="pass-dl-input" id="passDlInput" title="返事待ちの期限" />'
@@ -3234,8 +3209,8 @@ function passSpecificStep(taskId, stepId) {
     + '</div>';
   document.getElementById('passNameInput').focus();
   document.getElementById('passConfirmBtn').addEventListener('click', function() {
-    var name = document.getElementById('passNameInput').value.trim();
-    var dl = document.getElementById('passDlInput').value;
+    let name = document.getElementById('passNameInput').value.trim();
+    let dl = document.getElementById('passDlInput').value;
     doPassSpecificStep(taskId, stepId, name, dl);
   });
   document.getElementById('passCancelBtn').addEventListener('click', function() {
@@ -3244,15 +3219,16 @@ function passSpecificStep(taskId, stepId) {
 }
 
 async function doPassSpecificStep(taskId, stepId, personName, deadline) {
+  console.log('[doPassSpecificStep]', taskId, stepId, personName, deadline);
   try {
-    var data = await loadData();
-    var task = null;
-    for (var i = 0; i < data.tasks.length; i++) {
+    let data = await loadData();
+    let task = null;
+    for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
     }
     if (!task) return;
-    var step = null;
-    for (var j = 0; j < task.steps.length; j++) {
+    let step = null;
+    for (let j = 0; j < task.steps.length; j++) {
       if (task.steps[j].id === stepId) { step = task.steps[j]; break; }
     }
     if (!step) return;
@@ -3261,8 +3237,8 @@ async function doPassSpecificStep(taskId, stepId, personName, deadline) {
     if (deadline) { step.deadline = deadline; }
 
     // 同タスク内で次の自分ボールtodoを探す
-    var foundNext = false;
-    for (var k = 0; k < task.steps.length; k++) {
+    let foundNext = false;
+    for (let k = 0; k < task.steps.length; k++) {
       if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
         task.steps[k].status = 'current';
         foundNext = true;
@@ -3271,7 +3247,7 @@ async function doPassSpecificStep(taskId, stepId, personName, deadline) {
     }
 
     await saveData(data);
-    var toastName = personName ? personName + 'に' : '相手に';
+    const toastName = personName ? personName + 'に' : '相手に';
     showToast('⇢ ' + toastName + '渡しました');
     await renderFocusScreen();
   } catch (e) {
@@ -3281,23 +3257,24 @@ async function doPassSpecificStep(taskId, stepId, personName, deadline) {
 
 // ── 特定ステップを後回し（期限優先表示用） ──
 async function skipSpecificStep(taskId, stepId) {
+  console.log('[skipSpecificStep]', taskId, stepId);
   try {
-    var data = await loadData();
-    var task = null;
-    for (var i = 0; i < data.tasks.length; i++) {
+    let data = await loadData();
+    let task = null;
+    for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
     }
     if (!task) return;
-    var stepIdx = -1;
-    for (var j = 0; j < task.steps.length; j++) {
+    let stepIdx = -1;
+    for (let j = 0; j < task.steps.length; j++) {
       if (task.steps[j].id === stepId) { stepIdx = j; break; }
     }
     if (stepIdx < 0) return;
     task.steps[stepIdx].status = 'todo';
 
     // 同タスク内で次の自分ボールtodoを探す
-    var foundNext = false;
-    for (var k = stepIdx + 1; k < task.steps.length; k++) {
+    let foundNext = false;
+    for (let k = stepIdx + 1; k < task.steps.length; k++) {
       if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
         task.steps[k].status = 'current';
         foundNext = true;
@@ -3317,97 +3294,13 @@ async function skipSpecificStep(taskId, stepId) {
 }
 
 // ── 渡したボタン ──
-async function passCurrentStep() {
-  // 名前＋期限入力UIを表示
-  var actionsEl = document.getElementById('nowActions');
-  actionsEl.innerHTML = '<div class="pass-name-row">'
-    + '<input type="text" class="pass-name-input" id="passNameInput" placeholder="相手の名前（任意）" />'
-    + '<input type="date" class="pass-dl-input" id="passDlInput" title="返事待ちの期限" />'
-    + '<button class="act-btn act-done" id="passConfirmBtn">⇢ 渡す</button>'
-    + '<button class="act-btn act-skip" id="passCancelBtn">戻る</button>'
-    + '</div>';
-
-  document.getElementById('passNameInput').focus();
-
-  document.getElementById('passConfirmBtn').addEventListener('click', function() {
-    var name = document.getElementById('passNameInput').value.trim();
-    var dl = document.getElementById('passDlInput').value;
-    doPassCurrentStep(name, dl);
-  });
-  document.getElementById('passNameInput').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      var name = document.getElementById('passNameInput').value.trim();
-      var dl = document.getElementById('passDlInput').value;
-      doPassCurrentStep(name, dl);
-    }
-  });
-  document.getElementById('passCancelBtn').addEventListener('click', function() {
-    renderFocusScreen();
-  });
-}
-
-async function doPassCurrentStep(personName, deadline) {
-  try {
-    var data = await loadData();
-    var current = findCurrentStep(data.tasks);
-    if (!current) return;
-
-    var task = null;
-    for (var i = 0; i < data.tasks.length; i++) {
-      if (data.tasks[i].id === current.task.id) { task = data.tasks[i]; break; }
-    }
-    var step = null;
-    for (var j = 0; j < task.steps.length; j++) {
-      if (task.steps[j].id === current.step.id) { step = task.steps[j]; break; }
-    }
-    step.status = 'waiting';
-    step.ball = personName ? '相手：' + personName : '相手';
-    if (deadline) { step.deadline = deadline; }
-
-    // 次の自分ボールを探す
-    var foundNext = false;
-    for (var k = 0; k < task.steps.length; k++) {
-      if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
-        task.steps[k].status = 'current';
-        foundNext = true;
-        break;
-      }
-    }
-    if (!foundNext) {
-      for (var oi = 0; oi < data.tasks.length; oi++) {
-        if (foundNext) break;
-        if (data.tasks[oi].status !== 'active' || data.tasks[oi].id === task.id) continue;
-        var oHasCur = false;
-        for (var oc = 0; oc < data.tasks[oi].steps.length; oc++) {
-          if (data.tasks[oi].steps[oc].status === 'current') { oHasCur = true; break; }
-        }
-        if (oHasCur) continue;
-        for (var os = 0; os < data.tasks[oi].steps.length; os++) {
-          if (data.tasks[oi].steps[os].ball === '自分' && data.tasks[oi].steps[os].status === 'todo') {
-            data.tasks[oi].steps[os].status = 'current';
-            foundNext = true;
-            break;
-          }
-        }
-      }
-    }
-
-    var toastName = personName ? personName + 'に' : '相手に';
-    await saveData(data);
-    showToast('⇢ ' + toastName + '渡しました');
-    await renderFocusScreen();
-  } catch (e) {
-    showToast('❌ エラー：' + (e.message || String(e)));
-  }
-}
-
 // ── 待機中ステップを完了にする（今やること欄から） ──
 async function resolveWaitingStep(taskId, stepIdx) {
+  console.log('[resolveWaitingStep]', taskId, stepIdx);
   try {
-    var data = await loadData();
-    var task = null;
-    for (var i = 0; i < data.tasks.length; i++) {
+    let data = await loadData();
+    let task = null;
+    for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
     }
     if (!task || stepIdx < 0 || stepIdx >= task.steps.length) { return; }
@@ -3415,19 +3308,19 @@ async function resolveWaitingStep(taskId, stepIdx) {
     task.steps[stepIdx].status = 'done';
 
     // 次のtodoをcurrentに
-    var hasCurrent = false;
-    for (var c = 0; c < task.steps.length; c++) {
+    let hasCurrent = false;
+    for (let c = 0; c < task.steps.length; c++) {
       if (task.steps[c].status === 'current') { hasCurrent = true; break; }
     }
     if (!hasCurrent) {
-      for (var n = 0; n < task.steps.length; n++) {
+      for (let n = 0; n < task.steps.length; n++) {
         if (task.steps[n].status === 'todo') { task.steps[n].status = 'current'; break; }
       }
     }
 
     // 全ステップ完了チェック
-    var allDone = true;
-    for (var ad = 0; ad < task.steps.length; ad++) {
+    let allDone = true;
+    for (let ad = 0; ad < task.steps.length; ad++) {
       if (task.steps[ad].status !== 'done') { allDone = false; break; }
     }
     if (allDone) { task.status = 'done'; }
@@ -3443,23 +3336,23 @@ async function resolveWaitingStep(taskId, stepIdx) {
 // ── 後回しボタン ──
 async function skipCurrentStep() {
   try {
-    var data = await loadData();
-    var current = findCurrentStep(data.tasks);
+    let data = await loadData();
+    let current = findCurrentStep(data.tasks);
     if (!current) return;
 
-    var task = null;
-    for (var i = 0; i < data.tasks.length; i++) {
+    let task = null;
+    for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id === current.task.id) { task = data.tasks[i]; break; }
     }
-    var stepIdx = -1;
-    for (var j = 0; j < task.steps.length; j++) {
+    let stepIdx = -1;
+    for (let j = 0; j < task.steps.length; j++) {
       if (task.steps[j].id === current.step.id) { stepIdx = j; break; }
     }
     task.steps[stepIdx].status = 'todo';
 
     // 次を探す
-    var foundNext = false;
-    for (var k = stepIdx + 1; k < task.steps.length; k++) {
+    let foundNext = false;
+    for (let k = stepIdx + 1; k < task.steps.length; k++) {
       if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
         task.steps[k].status = 'current';
         foundNext = true;
@@ -3467,15 +3360,15 @@ async function skipCurrentStep() {
       }
     }
     if (!foundNext) {
-      for (var oi = 0; oi < data.tasks.length; oi++) {
+      for (let oi = 0; oi < data.tasks.length; oi++) {
         if (foundNext) break;
         if (data.tasks[oi].status !== 'active' || data.tasks[oi].id === task.id) continue;
-        var oHasCur2 = false;
-        for (var oc2 = 0; oc2 < data.tasks[oi].steps.length; oc2++) {
+        let oHasCur2 = false;
+        for (let oc2 = 0; oc2 < data.tasks[oi].steps.length; oc2++) {
           if (data.tasks[oi].steps[oc2].status === 'current') { oHasCur2 = true; break; }
         }
         if (oHasCur2) continue;
-        for (var os = 0; os < data.tasks[oi].steps.length; os++) {
+        for (let os = 0; os < data.tasks[oi].steps.length; os++) {
           if (data.tasks[oi].steps[os].ball === '自分' && data.tasks[oi].steps[os].status === 'todo') {
             data.tasks[oi].steps[os].status = 'current';
             foundNext = true;
@@ -3499,10 +3392,11 @@ async function skipCurrentStep() {
 // ── タスク削除 ──
 // Artifact環境ではconfirm()が使えないため、直接削除する
 async function deleteTask(taskId) {
+  console.log('[deleteTask]', taskId);
   try {
-    var data = await loadData();
-    var filtered = [];
-    for (var i = 0; i < data.tasks.length; i++) {
+    let data = await loadData();
+    const filtered = [];
+    for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id !== taskId) filtered.push(data.tasks[i]);
     }
     data.tasks = filtered;
@@ -3517,14 +3411,14 @@ async function deleteTask(taskId) {
 // ── 実行画面でステップ追加 ──
 async function addStepToTask(taskId) {
   try {
-    var data = await loadData();
-    var task = null;
-    for (var i = 0; i < data.tasks.length; i++) {
+    let data = await loadData();
+    let task = null;
+    for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
     }
     if (!task) { showToast('❌ タスクが見つかりません'); return; }
 
-    var newStep = {
+    const newStep = {
       id: 'step_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       text: '新しいステップ',
       ball: '自分',
@@ -3534,13 +3428,13 @@ async function addStepToTask(taskId) {
     };
 
     // 最後の未完了ステップの前（currentの次）に挿入
-    var insertIdx = task.steps.length;
-    for (var s = task.steps.length - 1; s >= 0; s--) {
+    let insertIdx = task.steps.length;
+    for (let s = task.steps.length - 1; s >= 0; s--) {
       if (task.steps[s].status === 'done') { break; }
       insertIdx = s;
     }
     // currentの後ろに入れる
-    for (var c = insertIdx; c < task.steps.length; c++) {
+    for (let c = insertIdx; c < task.steps.length; c++) {
       if (task.steps[c].status === 'current') { insertIdx = c + 1; break; }
     }
     task.steps.splice(insertIdx, 0, newStep);
@@ -3555,17 +3449,18 @@ async function addStepToTask(taskId) {
 
 // ── 実行画面のステップ操作（複製・削除） ──
 async function handleTreeStepAction(action, taskId, stepIdx) {
+  console.log('[handleTreeStepAction]', action, taskId, stepIdx);
   try {
-    var data = await loadData();
-    var task = null;
-    for (var i = 0; i < data.tasks.length; i++) {
+    let data = await loadData();
+    let task = null;
+    for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
     }
     if (!task || stepIdx < 0 || stepIdx >= task.steps.length) { return; }
 
     if (action === 'dup') {
-      var orig = task.steps[stepIdx];
-      var copy = {
+      let orig = task.steps[stepIdx];
+      const copy = {
         id: 'step_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
         text: orig.text,
         ball: orig.ball,
@@ -3580,12 +3475,12 @@ async function handleTreeStepAction(action, taskId, stepIdx) {
     } else if (action === 'del-step') {
       task.steps.splice(stepIdx, 1);
       // currentが消えた場合、次のtodoをcurrentに
-      var hasCurrent = false;
-      for (var c = 0; c < task.steps.length; c++) {
+      let hasCurrent = false;
+      for (let c = 0; c < task.steps.length; c++) {
         if (task.steps[c].status === 'current') { hasCurrent = true; break; }
       }
       if (!hasCurrent) {
-        for (var n = 0; n < task.steps.length; n++) {
+        for (let n = 0; n < task.steps.length; n++) {
           if (task.steps[n].status === 'todo') { task.steps[n].status = 'current'; break; }
         }
       }
@@ -3598,8 +3493,8 @@ async function handleTreeStepAction(action, taskId, stepIdx) {
       task.steps[stepIdx].status = 'done';
 
       // 全ステップ完了チェック
-      var allDone = true;
-      for (var ad = 0; ad < task.steps.length; ad++) {
+      let allDone = true;
+      for (let ad = 0; ad < task.steps.length; ad++) {
         if (task.steps[ad].status !== 'done') { allDone = false; break; }
       }
       if (allDone) { task.status = 'done'; }
@@ -3615,15 +3510,16 @@ async function handleTreeStepAction(action, taskId, stepIdx) {
 
 // ── 実行画面のステップ並び替え ──
 async function treeReorderStep(taskId, fromIdx, toIdx) {
+  console.log('[treeReorderStep]', taskId, fromIdx, toIdx);
   try {
-    var data = await loadData();
-    var task = null;
-    for (var i = 0; i < data.tasks.length; i++) {
+    let data = await loadData();
+    let task = null;
+    for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
     }
     if (!task) { return; }
 
-    var moved = task.steps.splice(fromIdx, 1)[0];
+    let moved = task.steps.splice(fromIdx, 1)[0];
     task.steps.splice(toIdx, 0, moved);
     await saveData(data);
     await renderFocusScreen();
@@ -3634,10 +3530,11 @@ async function treeReorderStep(taskId, fromIdx, toIdx) {
 
 // ── ステップ期限の変更 ──
 async function updateStepDeadline(taskId, stepIdx, newDeadline) {
+  console.log('[updateStepDeadline]', taskId, stepIdx, newDeadline);
   try {
-    var data = await loadData();
-    var task = null;
-    for (var i = 0; i < data.tasks.length; i++) {
+    let data = await loadData();
+    let task = null;
+    for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
     }
     if (!task || stepIdx < 0 || stepIdx >= task.steps.length) { return; }
@@ -3651,10 +3548,10 @@ async function updateStepDeadline(taskId, stepIdx, newDeadline) {
 
 // ── ツリー開閉 ──
 function toggleTree(panelId, chevId) {
-  var panel = document.getElementById(panelId);
-  var chev = document.getElementById(chevId);
+  const panel = document.getElementById(panelId);
+  const chev = document.getElementById(chevId);
   if (!panel) return;
-  var isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
+  const isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
   panel.style.maxHeight = isOpen ? '0px' : '2000px';
   if (chev) chev.classList.toggle('open', !isOpen);
 }
@@ -3665,9 +3562,9 @@ function toggleTree(panelId, chevId) {
 
 // ── 期限ヘルパー関数 ──
 function getEarliestStepDeadline(task) {
-  var earliest = '';
-  for (var i = 0; i < task.steps.length; i++) {
-    var s = task.steps[i];
+  let earliest = '';
+  for (let i = 0; i < task.steps.length; i++) {
+    let s = task.steps[i];
     if (s.deadline && s.status !== 'done') {
       if (!earliest || s.deadline < earliest) {
         earliest = s.deadline;
@@ -3679,12 +3576,12 @@ function getEarliestStepDeadline(task) {
 
 function getDeadlineClass(deadlineStr) {
   if (!deadlineStr) { return ''; }
-  var today = new Date();
+  const today = new Date();
   today.setHours(0,0,0,0);
-  var parts = deadlineStr.split('-');
-  var dl = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  let parts = deadlineStr.split('-');
+  let dl = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
   dl.setHours(0,0,0,0);
-  var diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
+  const diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
   if (diff < 0) { return ' overdue'; }
   if (diff <= 2) { return ' soon'; }
   return '';
@@ -3692,14 +3589,14 @@ function getDeadlineClass(deadlineStr) {
 
 function formatDeadlineShort(deadlineStr) {
   if (!deadlineStr) { return ''; }
-  var parts = deadlineStr.split('-');
-  var m = parseInt(parts[1]);
-  var d = parseInt(parts[2]);
-  var today = new Date();
+  let parts = deadlineStr.split('-');
+  let m = parseInt(parts[1]);
+  let d = parseInt(parts[2]);
+  const today = new Date();
   today.setHours(0,0,0,0);
-  var dl = new Date(parseInt(parts[0]), m - 1, d);
+  let dl = new Date(parseInt(parts[0]), m - 1, d);
   dl.setHours(0,0,0,0);
-  var diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
+  const diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
   if (diff < 0) { return m + '/' + d + '(過ぎた)'; }
   if (diff === 0) { return '今日まで'; }
   if (diff === 1) { return '明日まで'; }
@@ -3707,12 +3604,12 @@ function formatDeadlineShort(deadlineStr) {
 }
 
 async function renderFocusScreen() {
-  var data = await loadData();
-  var tasks = data.tasks;
+  let data = await loadData();
+  let tasks = data.tasks;
   updateHeaderBadge(data);
 
-  var emptyEl = document.getElementById('emptyState');
-  var focusEl = document.getElementById('focusContent');
+  const emptyEl = document.getElementById('emptyState');
+  const focusEl = document.getElementById('focusContent');
 
   if (tasks.length === 0) {
     emptyEl.style.display = 'flex';
@@ -3725,11 +3622,11 @@ async function renderFocusScreen() {
 
   // ── 「今やること」の特定（期限が近い順に統合） ──
   // current + waiting を全て集めて期限が近い順にソート
-  var actionableSteps = [];
-  for (var at = 0; at < tasks.length; at++) {
+  const actionableSteps = [];
+  for (let at = 0; at < tasks.length; at++) {
     if (tasks[at].status !== 'active') continue;
-    for (var as2 = 0; as2 < tasks[at].steps.length; as2++) {
-      var st = tasks[at].steps[as2];
+    for (let as2 = 0; as2 < tasks[at].steps.length; as2++) {
+      const st = tasks[at].steps[as2];
       if (st.status === 'current' || st.status === 'waiting') {
         actionableSteps.push({ task: tasks[at], step: st, stepIndex: as2 });
       }
@@ -3737,8 +3634,8 @@ async function renderFocusScreen() {
   }
   // 期限が近い順にソート（期限なしは後ろ）
   actionableSteps.sort(function(a, b) {
-    var dlA = a.step.deadline || '';
-    var dlB = b.step.deadline || '';
+    let dlA = a.step.deadline || '';
+    let dlB = b.step.deadline || '';
     if (!dlA && !dlB) return 0;
     if (!dlA) return 1;
     if (!dlB) return -1;
@@ -3746,20 +3643,20 @@ async function renderFocusScreen() {
   });
 
   // ツリー描画用にcurrentステップも特定しておく
-  var current = findCurrentStep(tasks);
+  let current = findCurrentStep(tasks);
 
-  var nowZone = document.getElementById('nowZone');
-  var allDoneZone = document.getElementById('allDoneZone');
+  const nowZone = document.getElementById('nowZone');
+  const allDoneZone = document.getElementById('allDoneZone');
 
   if (actionableSteps.length > 0) {
-    var top = actionableSteps[0];
-    var isWaiting = top.step.status === 'waiting';
+    const top = actionableSteps[0];
+    let isWaiting = top.step.status === 'waiting';
 
     nowZone.style.display = 'block';
     allDoneZone.style.display = 'none';
 
     // ピル
-    var pillEl = document.getElementById('nowPill');
+    const pillEl = document.getElementById('nowPill');
     if (isWaiting) {
       pillEl.textContent = '⏳ 相手の返事待ち';
       pillEl.className = 'now-pill now-pill-waiting';
@@ -3773,17 +3670,17 @@ async function renderFocusScreen() {
       top.task.emoji + ' ' + top.task.title + ' › ステップ ' + (top.stepIndex + 1) + '/' + top.task.steps.length;
     document.getElementById('nowMinutes').textContent = isWaiting ? '-' : top.step.minutes + '分';
 
-    var ballEl = document.getElementById('nowBall');
+    const ballEl = document.getElementById('nowBall');
     ballEl.textContent = top.step.ball;
     ballEl.className = 'meta-value' + (top.step.ball === '自分' ? ' green' : ' orange');
 
     document.getElementById('nowDeadline').textContent = top.task.deadline;
 
     // ステップ期限
-    var sdEl = document.getElementById('nowStepDeadline');
+    const sdEl = document.getElementById('nowStepDeadline');
     if (top.step.deadline) {
       sdEl.textContent = formatDeadlineShort(top.step.deadline);
-      var sdClass = getDeadlineClass(top.step.deadline);
+      const sdClass = getDeadlineClass(top.step.deadline);
       sdEl.className = 'meta-value' + (sdClass === ' overdue' ? ' red' : sdClass === ' soon' ? ' orange' : '');
     } else {
       sdEl.textContent = '-';
@@ -3791,7 +3688,7 @@ async function renderFocusScreen() {
     }
 
     // アクションボタン
-    var actionsEl = document.getElementById('nowActions');
+    const actionsEl = document.getElementById('nowActions');
     if (isWaiting) {
       actionsEl.innerHTML = '<button class="act-btn act-done" id="nowResolveBtn">✓ 返事きた</button>';
       document.getElementById('nowResolveBtn').addEventListener('click', function() {
@@ -3799,8 +3696,8 @@ async function renderFocusScreen() {
       });
     } else {
       // 表示中のステップのtaskId/stepIdを使って操作する
-      var topTaskId = top.task.id;
-      var topStepId = top.step.id;
+      const topTaskId = top.task.id;
+      const topStepId = top.step.id;
       actionsEl.innerHTML = '<button class="act-btn act-done" id="nowCompleteBtn">✓ 完了</button>'
         + '<button class="act-btn act-pass" id="nowPassBtn">⇢ 渡した</button>'
         + '<button class="act-btn act-skip" id="nowSkipBtn">後回し</button>';
@@ -3816,8 +3713,8 @@ async function renderFocusScreen() {
     }
   } else {
     nowZone.style.display = 'none';
-    var hasActive = false;
-    for (var i = 0; i < tasks.length; i++) {
+    let hasActive = false;
+    for (let i = 0; i < tasks.length; i++) {
       if (tasks[i].status === 'active') { hasActive = true; break; }
     }
     allDoneZone.style.display = 'flex';
@@ -3831,23 +3728,23 @@ async function renderFocusScreen() {
   }
 
   // ── プログレスバー ──
-  var totalSteps = 0, doneSteps = 0;
-  for (var pi = 0; pi < tasks.length; pi++) {
-    for (var ps = 0; ps < tasks[pi].steps.length; ps++) {
+  let totalSteps = 0, doneSteps = 0;
+  for (let pi = 0; pi < tasks.length; pi++) {
+    for (let ps = 0; ps < tasks[pi].steps.length; ps++) {
       totalSteps++;
       if (tasks[pi].steps[ps].status === 'done') doneSteps++;
     }
   }
-  var pct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+  const pct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
   document.getElementById('progFill').style.width = pct + '%';
   document.getElementById('progLabel').textContent = doneSteps + ' / ' + totalSteps + ' 完了';
 
   // ── ツリー描画 ──
-  var container = document.getElementById('treeContainer');
+  const container = document.getElementById('treeContainer');
   container.innerHTML = '';
 
-  var activeTasks = [], doneTasks = [];
-  for (var fi = 0; fi < tasks.length; fi++) {
+  let activeTasks = [], doneTasks = [];
+  for (let fi = 0; fi < tasks.length; fi++) {
     if (tasks[fi].status === 'active') activeTasks.push(tasks[fi]);
     else if (tasks[fi].status === 'done') doneTasks.push(tasks[fi]);
   }
@@ -3856,40 +3753,40 @@ async function renderFocusScreen() {
     // ── 期限順ソート（常時）──  期限なしは最下部
     activeTasks = activeTasks.slice();
     activeTasks.sort(function(a, b) {
-      var dlA = getEarliestStepDeadline(a);
-      var dlB = getEarliestStepDeadline(b);
+      let dlA = getEarliestStepDeadline(a);
+      let dlB = getEarliestStepDeadline(b);
       if (!dlA && !dlB) return 0;
       if (!dlA) return 1;
       if (!dlB) return -1;
       return dlA < dlB ? -1 : dlA > dlB ? 1 : 0;
     });
 
-    var treeLabel = document.createElement('div');
+    const treeLabel = document.createElement('div');
     treeLabel.className = 'tree-section-label';
     treeLabel.textContent = 'タスク全体';
     container.appendChild(treeLabel);
 
-    var tree = document.createElement('div');
+    let tree = document.createElement('div');
     tree.className = 'tree';
 
-    for (var ai = 0; ai < activeTasks.length; ai++) {
-      var aTask = activeTasks[ai];
-      var isCurrentTask = current && current.task.id === aTask.id;
-      var panelId = 'panel_' + ai;
-      var chevId = 'chev_' + ai;
-      var doneCount = 0;
-      for (var dc = 0; dc < aTask.steps.length; dc++) {
+    for (let ai = 0; ai < activeTasks.length; ai++) {
+      const aTask = activeTasks[ai];
+      const isCurrentTask = current && current.task.id === aTask.id;
+      const panelId = 'panel_' + ai;
+      const chevId = 'chev_' + ai;
+      const doneCount = 0;
+      for (let dc = 0; dc < aTask.steps.length; dc++) {
         if (aTask.steps[dc].status === 'done') doneCount++;
       }
 
-      var parentDiv = document.createElement('div');
-      var parentRow = document.createElement('div');
+      const parentDiv = document.createElement('div');
+      const parentRow = document.createElement('div');
       parentRow.className = 'parent-row' + (isCurrentTask ? ' is-active' : '');
       parentRow.setAttribute('data-panel', panelId);
       parentRow.setAttribute('data-chev', chevId);
       parentRow.onclick = function() {
-        var pid = this.getAttribute('data-panel');
-        var cid = this.getAttribute('data-chev');
+        const pid = this.getAttribute('data-panel');
+        const cid = this.getAttribute('data-chev');
         toggleTree(pid, cid);
       };
 
@@ -3904,36 +3801,36 @@ async function renderFocusScreen() {
 
       parentDiv.appendChild(parentRow);
 
-      var childWrap = document.createElement('div');
+      const childWrap = document.createElement('div');
       childWrap.className = 'children-wrap';
       childWrap.id = panelId;
       childWrap.style.maxHeight = isCurrentTask ? '2000px' : '0px';
 
-      for (var ci = 0; ci < aTask.steps.length; ci++) {
-        var cStep = aTask.steps[ci];
-        var isCurrent = cStep.status === 'current';
-        var isDone = cStep.status === 'done';
-        var isWaiting = cStep.status === 'waiting';
+      for (let ci = 0; ci < aTask.steps.length; ci++) {
+        const cStep = aTask.steps[ci];
+        const isCurrent = cStep.status === 'current';
+        const isDone = cStep.status === 'done';
+        let isWaiting = cStep.status === 'waiting';
 
-        var rowClass = 'step-row' + (isCurrent ? ' step-now' : '') + (isDone ? ' step-done-row' : '');
-        var snClass = 'sn' + (isCurrent ? ' sn-now' : isDone ? ' sn-done' : isWaiting ? ' sn-wait' : ' sn-next');
-        var textClass = 'step-text-tree' + (isCurrent ? ' t-now' : isDone ? ' t-done' : isWaiting ? ' t-wait' : '');
+        const rowClass = 'step-row' + (isCurrent ? ' step-now' : '') + (isDone ? ' step-done-row' : '');
+        const snClass = 'sn' + (isCurrent ? ' sn-now' : isDone ? ' sn-done' : isWaiting ? ' sn-wait' : ' sn-next');
+        const textClass = 'step-text-tree' + (isCurrent ? ' t-now' : isDone ? ' t-done' : isWaiting ? ' t-wait' : '');
 
-        var rightContent = '';
+        let rightContent = '';
         if (isCurrent) rightContent = '<span class="badge b-now">今ここ</span>';
         else if (isDone) rightContent = '<span class="badge b-done">✓</span>';
         else if (isWaiting) rightContent = '<span class="badge b-wait">' + cStep.ball.replace('相手：','') + '</span>';
         else rightContent = cStep.minutes + '分';
 
         // 期限タグ
-        var dlTag = '';
+        let dlTag = '';
         if (cStep.deadline && cStep.status !== 'done') {
-          var dlClass = getDeadlineClass(cStep.deadline);
+          const dlClass = getDeadlineClass(cStep.deadline);
           dlTag = '<span class="step-dl-tag' + dlClass + '">' + formatDeadlineShort(cStep.deadline) + '</span>';
         }
 
         // 編集操作ボタン（完了済み以外）
-        var editBtns = '';
+        let editBtns = '';
         if (!isDone) {
           editBtns = '<div class="tree-step-actions">';
           if (isWaiting) {
@@ -3945,13 +3842,13 @@ async function renderFocusScreen() {
         }
 
         // 期限編集（完了済み以外）
-        var dlEdit = '';
+        let dlEdit = '';
         if (!isDone) {
-          var dlVal2 = cStep.deadline || '';
+          const dlVal2 = cStep.deadline || '';
           dlEdit = '<input type="date" class="tree-step-dl" value="' + dlVal2 + '" data-task-id="' + aTask.id + '" data-step-idx="' + ci + '" title="期限変更" />';
         }
 
-        var row = document.createElement('div');
+        let row = document.createElement('div');
         row.className = rowClass;
         row.setAttribute('data-tree-drag-task', aTask.id);
         row.setAttribute('data-tree-drag-idx', ci);
@@ -3965,7 +3862,7 @@ async function renderFocusScreen() {
       }
 
       // ステップ追加ボタン
-      var addStepEl = document.createElement('div');
+      const addStepEl = document.createElement('div');
       addStepEl.className = 'tree-add-step';
       addStepEl.textContent = '＋ ステップを追加';
       addStepEl.setAttribute('data-add-task-id', aTask.id);
@@ -3979,24 +3876,24 @@ async function renderFocusScreen() {
 
     // ── イベント委譲（削除・ステップ追加・複製・ステップ削除） ──
     tree.addEventListener('click', function(e) {
-      var deleteBtn = e.target.closest('[data-delete-id]');
+      const deleteBtn = e.target.closest('[data-delete-id]');
       if (deleteBtn) {
         e.stopPropagation();
         deleteTask(deleteBtn.getAttribute('data-delete-id'));
         return;
       }
-      var addBtn = e.target.closest('[data-add-task-id]');
+      const addBtn = e.target.closest('[data-add-task-id]');
       if (addBtn) {
         e.stopPropagation();
         addStepToTask(addBtn.getAttribute('data-add-task-id'));
         return;
       }
-      var actionBtn = e.target.closest('[data-tree-action]');
+      const actionBtn = e.target.closest('[data-tree-action]');
       if (actionBtn) {
         e.stopPropagation();
-        var treeAction = actionBtn.getAttribute('data-tree-action');
-        var taskId = actionBtn.getAttribute('data-task-id');
-        var stepIdx = parseInt(actionBtn.getAttribute('data-step-idx'));
+        const treeAction = actionBtn.getAttribute('data-tree-action');
+        let taskId = actionBtn.getAttribute('data-task-id');
+        let stepIdx = parseInt(actionBtn.getAttribute('data-step-idx'));
         handleTreeStepAction(treeAction, taskId, stepIdx);
       }
     });
@@ -4004,69 +3901,69 @@ async function renderFocusScreen() {
     // ── 期限変更ハンドラ ──
     tree.addEventListener('change', function(e) {
       if (e.target.classList.contains('tree-step-dl')) {
-        var taskId = e.target.getAttribute('data-task-id');
-        var stepIdx = parseInt(e.target.getAttribute('data-step-idx'));
-        var newDl = e.target.value;
+        let taskId = e.target.getAttribute('data-task-id');
+        let stepIdx = parseInt(e.target.getAttribute('data-step-idx'));
+        const newDl = e.target.value;
         updateStepDeadline(taskId, stepIdx, newDl);
       }
     });
 
     // ── 実行画面D&D ──
-    var treeDragTaskId = null;
-    var treeDragIdx = null;
+    let treeDragTaskId = null;
+    let treeDragIdx = null;
 
     tree.addEventListener('dragstart', function(e) {
-      var handle = e.target.closest('.tree-drag-handle');
+      let handle = e.target.closest('.tree-drag-handle');
       if (!handle) { e.preventDefault(); return; }
       treeDragTaskId = handle.getAttribute('data-tree-drag-task');
       treeDragIdx = parseInt(handle.getAttribute('data-tree-drag-idx'));
-      var row = handle.closest('.step-row');
+      let row = handle.closest('.step-row');
       if (row) { row.classList.add('dragging'); }
       e.dataTransfer.effectAllowed = 'move';
     });
 
     tree.addEventListener('dragend', function() {
-      var all = tree.querySelectorAll('.dragging');
-      for (var i = 0; i < all.length; i++) { all[i].classList.remove('dragging'); }
-      var overs = tree.querySelectorAll('.drag-over');
-      for (var j = 0; j < overs.length; j++) { overs[j].classList.remove('drag-over'); }
+      const all = tree.querySelectorAll('.dragging');
+      for (let i = 0; i < all.length; i++) { all[i].classList.remove('dragging'); }
+      const overs = tree.querySelectorAll('.drag-over');
+      for (let j = 0; j < overs.length; j++) { overs[j].classList.remove('drag-over'); }
       treeDragTaskId = null;
       treeDragIdx = null;
     });
 
     tree.addEventListener('dragover', function(e) {
       e.preventDefault();
-      var row = e.target.closest('.step-row[data-tree-drag-task]');
+      let row = e.target.closest('.step-row[data-tree-drag-task]');
       if (!row) { return; }
-      var overTaskId = row.getAttribute('data-tree-drag-task');
+      const overTaskId = row.getAttribute('data-tree-drag-task');
       if (!treeDragTaskId || overTaskId !== treeDragTaskId) { return; }
       e.dataTransfer.dropEffect = 'move';
-      var overs = tree.querySelectorAll('.drag-over');
-      for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+      const overs = tree.querySelectorAll('.drag-over');
+      for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
       row.classList.add('drag-over');
     });
 
     tree.addEventListener('drop', function(e) {
       e.preventDefault();
-      var row = e.target.closest('.step-row[data-tree-drag-task]');
+      let row = e.target.closest('.step-row[data-tree-drag-task]');
       if (!row) { return; }
-      var dropTaskId = row.getAttribute('data-tree-drag-task');
-      var dropIdx = parseInt(row.getAttribute('data-tree-drag-idx'));
+      const dropTaskId = row.getAttribute('data-tree-drag-task');
+      const dropIdx = parseInt(row.getAttribute('data-tree-drag-idx'));
       if (!treeDragTaskId || treeDragTaskId !== dropTaskId || treeDragIdx === dropIdx) { return; }
       treeReorderStep(treeDragTaskId, treeDragIdx, dropIdx);
     });
 
     // ── タッチD&D（モバイル） ──
-    var touchTaskId = null;
-    var touchIdx = null;
-    var touchRow = null;
-    var touchTimerTree = null;
-    var touchActiveTree = false;
+    let touchTaskId = null;
+    let touchIdx = null;
+    let touchRow = null;
+    let touchTimerTree = null;
+    let touchActiveTree = false;
 
     tree.addEventListener('touchstart', function(e) {
-      var handle = e.target.closest('.tree-drag-handle');
+      let handle = e.target.closest('.tree-drag-handle');
       if (!handle) { return; }
-      var row = handle.closest('.step-row');
+      let row = handle.closest('.step-row');
       if (!row) { return; }
       touchTaskId = handle.getAttribute('data-tree-drag-task');
       touchIdx = parseInt(handle.getAttribute('data-tree-drag-idx'));
@@ -4080,12 +3977,12 @@ async function renderFocusScreen() {
     tree.addEventListener('touchmove', function(e) {
       if (!touchActiveTree) { clearTimeout(touchTimerTree); return; }
       e.preventDefault();
-      var touch = e.touches[0];
-      var el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const touch = e.touches[0];
+      let el = document.elementFromPoint(touch.clientX, touch.clientY);
       if (!el) { return; }
-      var overRow = el.closest('.step-row[data-tree-drag-task]');
-      var overs = tree.querySelectorAll('.drag-over');
-      for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+      const overRow = el.closest('.step-row[data-tree-drag-task]');
+      const overs = tree.querySelectorAll('.drag-over');
+      for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
       if (overRow && overRow.getAttribute('data-tree-drag-task') === touchTaskId) {
         overRow.classList.add('drag-over');
       }
@@ -4093,18 +3990,22 @@ async function renderFocusScreen() {
 
     tree.addEventListener('touchend', function() {
       clearTimeout(touchTimerTree);
-      var allD = tree.querySelectorAll('.dragging');
-      for (var d = 0; d < allD.length; d++) { allD[d].classList.remove('dragging'); }
-      var overs = tree.querySelectorAll('.drag-over');
-      for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+
+      // ドロップ先を先に特定（クリア前に）
+      const overs = tree.querySelectorAll('.drag-over');
+      const dropRow = overs.length > 0 ? overs[0] : null;
+
+      // クリア
+      const allD = tree.querySelectorAll('.dragging');
+      for (let d = 0; d < allD.length; d++) { allD[d].classList.remove('dragging'); }
+      for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
 
       if (!touchActiveTree) { touchRow = null; touchTaskId = null; touchIdx = null; return; }
       touchActiveTree = false;
 
-      var dropRow = overs.length > 0 ? overs[0] : null;
       if (dropRow) {
-        var dropTaskId2 = dropRow.getAttribute('data-tree-drag-task');
-        var dropIdx2 = parseInt(dropRow.getAttribute('data-tree-drag-idx'));
+        const dropTaskId2 = dropRow.getAttribute('data-tree-drag-task');
+        const dropIdx2 = parseInt(dropRow.getAttribute('data-tree-drag-idx'));
         if (touchTaskId === dropTaskId2 && touchIdx !== dropIdx2) {
           treeReorderStep(touchTaskId, touchIdx, dropIdx2);
         }
@@ -4115,23 +4016,23 @@ async function renderFocusScreen() {
     tree.addEventListener('touchcancel', function() {
       clearTimeout(touchTimerTree);
       touchActiveTree = false;
-      var allD = tree.querySelectorAll('.dragging');
-      for (var d = 0; d < allD.length; d++) { allD[d].classList.remove('dragging'); }
-      var overs = tree.querySelectorAll('.drag-over');
-      for (var i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
+      const allD = tree.querySelectorAll('.dragging');
+      for (let d = 0; d < allD.length; d++) { allD[d].classList.remove('dragging'); }
+      const overs = tree.querySelectorAll('.drag-over');
+      for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
       touchTaskId = null; touchIdx = null; touchRow = null;
     });
   }
 
   // ── 完了済み ──
   if (doneTasks.length > 0) {
-    var divider2 = document.createElement('div');
+    const divider2 = document.createElement('div');
     divider2.className = 'divider';
     divider2.textContent = '完了済み';
     container.appendChild(divider2);
 
-    for (var di = 0; di < doneTasks.length; di++) {
-      var dRow = document.createElement('div');
+    for (let di = 0; di < doneTasks.length; di++) {
+      const dRow = document.createElement('div');
       dRow.innerHTML =
         '<div class="parent-row" style="opacity:0.4">'
         + '<div class="parent-icon pi-done">✓</div>'
@@ -4148,7 +4049,7 @@ async function renderFocusScreen() {
     }
   }
 
-  var spacer = document.createElement('div');
+  const spacer = document.createElement('div');
   spacer.className = 'spacer';
   container.appendChild(spacer);
 }
@@ -4159,11 +4060,11 @@ async function renderFocusScreen() {
 
 // ── 設定画面の表示を更新 ──
 function updateSettingsScreen() {
-  var provider = getProvider();
+  let provider = getProvider();
 
   // プロバイダーボタンの表示切替
-  var gemBtn = document.getElementById('providerGemini');
-  var claBtn = document.getElementById('providerClaude');
+  const gemBtn = document.getElementById('providerGemini');
+  const claBtn = document.getElementById('providerClaude');
   if (provider === 'gemini') {
     gemBtn.style.background = 'var(--green)'; gemBtn.style.color = '#000'; gemBtn.style.border = 'none';
     claBtn.style.background = 'var(--surface)'; claBtn.style.color = 'var(--text)'; claBtn.style.border = '1px solid var(--border)';
@@ -4177,8 +4078,8 @@ function updateSettingsScreen() {
   }
 
   // Geminiキー状態
-  var gemKey = getApiKey('gemini');
-  var gemStatus = document.getElementById('geminiKeyStatus');
+  const gemKey = getApiKey('gemini');
+  const gemStatus = document.getElementById('geminiKeyStatus');
   if (gemKey) {
     gemStatus.innerHTML = '<span class="settings-status status-ok">✓ 設定済み</span>';
     document.getElementById('geminiKeyInput').placeholder = '••••' + gemKey.slice(-4) + '（変更する場合は新しいキーを入力）';
@@ -4187,8 +4088,8 @@ function updateSettingsScreen() {
   }
 
   // Claudeキー状態
-  var claKey = getApiKey('claude');
-  var claStatus = document.getElementById('claudeKeyStatus');
+  const claKey = getApiKey('claude');
+  const claStatus = document.getElementById('claudeKeyStatus');
   if (isArtifactEnv()) {
     claStatus.innerHTML = '<span class="settings-status status-ok">✓ Artifact環境（キー不要）</span>';
   } else if (claKey) {
@@ -4199,13 +4100,13 @@ function updateSettingsScreen() {
   }
 
   // データ統計
-  var statsEl = document.getElementById('dataStats');
+  const statsEl = document.getElementById('dataStats');
   try {
-    var raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      var d = JSON.parse(raw);
-      var active = d.tasks.filter(function(t) { return t.status === 'active'; }).length;
-      var done = d.tasks.filter(function(t) { return t.status === 'done'; }).length;
+      let d = JSON.parse(raw);
+      const active = d.tasks.filter(function(t) { return t.status === 'active'; }).length;
+      let done = d.tasks.filter(function(t) { return t.status === 'done'; }).length;
       statsEl.textContent = '進行中: ' + active + '件 / 完了済み: ' + done + '件';
     } else {
       statsEl.textContent = 'データなし';
@@ -4215,10 +4116,10 @@ function updateSettingsScreen() {
   }
 
   // プロフィール表示
-  var profEl = document.getElementById('profileSummary');
-  var prof = getProfile();
+  const profEl = document.getElementById('profileSummary');
+  const prof = getProfile();
   if (prof) {
-    var parts = [];
+    let parts = [];
     if (prof.job) { parts.push('職種・立場：' + prof.job); }
     if (prof.focusMinutes) { parts.push('集中力：' + prof.focusMinutes); }
     if (prof.granularity) { parts.push('粒度：' + prof.granularity); }
@@ -4246,10 +4147,10 @@ function updateSettingsScreen() {
 
     // ── オンボーディングのナビボタン ──
     document.getElementById('obNext').addEventListener('click', function() {
-      var q = ONBOARDING_QUESTIONS[obCurrentStep];
+      const q = ONBOARDING_QUESTIONS[obCurrentStep];
       // テキスト入力の場合、値を取得
       if (q.type === 'text') {
-        var inp = document.getElementById('obTextInput');
+        let inp = document.getElementById('obTextInput');
         if (inp) { obAnswers[q.id] = inp.value.trim(); }
       }
       if (obCurrentStep < ONBOARDING_QUESTIONS.length - 1) {
@@ -4284,7 +4185,7 @@ function updateSettingsScreen() {
 
     // ── Geminiキー保存 ──
     document.getElementById('saveGeminiKeyBtn').addEventListener('click', function() {
-      var key = document.getElementById('geminiKeyInput').value.trim();
+      let key = document.getElementById('geminiKeyInput').value.trim();
       if (!key) { showToast('APIキーを入力してください'); return; }
       if (key.indexOf('AIza') !== 0) { showToast('キーは AIza で始まる必要があります'); return; }
       saveApiKey('gemini', key);
@@ -4295,7 +4196,7 @@ function updateSettingsScreen() {
 
     // ── Claudeキー保存 ──
     document.getElementById('saveClaudeKeyBtn').addEventListener('click', function() {
-      var key = document.getElementById('claudeKeyInput').value.trim();
+      let key = document.getElementById('claudeKeyInput').value.trim();
       if (!key) { showToast('APIキーを入力してください'); return; }
       if (key.indexOf('sk-') !== 0) { showToast('キーは sk- で始まる必要があります'); return; }
       saveApiKey('claude', key);
@@ -4306,12 +4207,13 @@ function updateSettingsScreen() {
 
     // ── データ削除 ──
     document.getElementById('clearDataBtn').addEventListener('click', function() {
-      if (!confirm('全てのタスクデータを削除しますか？\nこの操作は元に戻せません。')) return;
-      try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
-      _inMemoryData = null;
-      showToast('✓ データを削除しました');
-      updateSettingsScreen();
-      renderFocusScreen();
+      showConfirmDialog('全てのタスクデータを削除しますか？<br>この操作は元に戻せません。', function() {
+        try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+        _inMemoryData = null;
+        showToast('✓ データを削除しました');
+        updateSettingsScreen();
+        renderFocusScreen();
+      });
     });
 
     // ── プロフィール再設定 ──
@@ -4321,8 +4223,8 @@ function updateSettingsScreen() {
 
     // ── カテゴリー追加ボタン ──
     document.getElementById('catAddBtn').addEventListener('click', function() {
-      var inp = document.getElementById('catAddInput');
-      var name = inp.value.trim();
+      let inp = document.getElementById('catAddInput');
+      let name = inp.value.trim();
       if (!name) { showToast('カテゴリー名を入力してください'); return; }
       addCategory(name);
       inp.value = '';
