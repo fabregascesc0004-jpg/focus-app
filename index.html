@@ -1813,7 +1813,7 @@ input[type="date"] {
   <div class="settings-section">
     <div class="settings-title">バージョン情報</div>
     <div class="settings-desc">
-      FOCUS v2.2.3<br>
+      FOCUS v2.3<br>
       ADHDユーザーのためのタスク管理アプリ
     </div>
   </div>
@@ -3209,6 +3209,113 @@ async function completeCurrentStep() {
   }
 }
 
+// ── 特定ステップの完了（期限優先表示用） ──
+async function completeSpecificStep(taskId, stepId) {
+  try {
+    var data = await loadData();
+    var updated = advanceToNextStep(data, taskId, stepId);
+    await saveData(updated);
+    showToast('✓ 完了！');
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ エラー：' + (e.message || String(e)));
+  }
+}
+
+// ── 特定ステップを渡す（期限優先表示用） ──
+function passSpecificStep(taskId, stepId) {
+  // 名前＋期限入力UIを表示
+  var actionsEl = document.getElementById('nowActions');
+  actionsEl.innerHTML = '<div class="pass-name-row">'
+    + '<input type="text" class="pass-name-input" id="passNameInput" placeholder="相手の名前（任意）" />'
+    + '<input type="date" class="pass-dl-input" id="passDlInput" title="返事待ちの期限" />'
+    + '<button class="act-btn act-done" id="passConfirmBtn">⇢ 渡す</button>'
+    + '<button class="act-btn act-skip" id="passCancelBtn">戻る</button>'
+    + '</div>';
+  document.getElementById('passNameInput').focus();
+  document.getElementById('passConfirmBtn').addEventListener('click', function() {
+    var name = document.getElementById('passNameInput').value.trim();
+    var dl = document.getElementById('passDlInput').value;
+    doPassSpecificStep(taskId, stepId, name, dl);
+  });
+  document.getElementById('passCancelBtn').addEventListener('click', function() {
+    renderFocusScreen();
+  });
+}
+
+async function doPassSpecificStep(taskId, stepId, personName, deadline) {
+  try {
+    var data = await loadData();
+    var task = null;
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
+    }
+    if (!task) return;
+    var step = null;
+    for (var j = 0; j < task.steps.length; j++) {
+      if (task.steps[j].id === stepId) { step = task.steps[j]; break; }
+    }
+    if (!step) return;
+    step.status = 'waiting';
+    step.ball = personName ? '相手：' + personName : '相手';
+    if (deadline) { step.deadline = deadline; }
+
+    // 同タスク内で次の自分ボールtodoを探す
+    var foundNext = false;
+    for (var k = 0; k < task.steps.length; k++) {
+      if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
+        task.steps[k].status = 'current';
+        foundNext = true;
+        break;
+      }
+    }
+
+    await saveData(data);
+    var toastName = personName ? personName + 'に' : '相手に';
+    showToast('⇢ ' + toastName + '渡しました');
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ エラー：' + (e.message || String(e)));
+  }
+}
+
+// ── 特定ステップを後回し（期限優先表示用） ──
+async function skipSpecificStep(taskId, stepId) {
+  try {
+    var data = await loadData();
+    var task = null;
+    for (var i = 0; i < data.tasks.length; i++) {
+      if (data.tasks[i].id === taskId) { task = data.tasks[i]; break; }
+    }
+    if (!task) return;
+    var stepIdx = -1;
+    for (var j = 0; j < task.steps.length; j++) {
+      if (task.steps[j].id === stepId) { stepIdx = j; break; }
+    }
+    if (stepIdx < 0) return;
+    task.steps[stepIdx].status = 'todo';
+
+    // 同タスク内で次の自分ボールtodoを探す
+    var foundNext = false;
+    for (var k = stepIdx + 1; k < task.steps.length; k++) {
+      if (task.steps[k].ball === '自分' && task.steps[k].status === 'todo') {
+        task.steps[k].status = 'current';
+        foundNext = true;
+        break;
+      }
+    }
+    if (!foundNext) {
+      task.steps[stepIdx].status = 'current';
+    }
+
+    await saveData(data);
+    showToast('↩ 後回しにしました');
+    await renderFocusScreen();
+  } catch (e) {
+    showToast('❌ エラー：' + (e.message || String(e)));
+  }
+}
+
 // ── 渡したボタン ──
 async function passCurrentStep() {
   // 名前＋期限入力UIを表示
@@ -3691,9 +3798,21 @@ async function renderFocusScreen() {
         resolveWaitingStep(top.task.id, top.stepIndex);
       });
     } else {
-      actionsEl.innerHTML = '<button class="act-btn act-done" onclick="completeCurrentStep()">✓ 完了</button>'
-        + '<button class="act-btn act-pass" onclick="passCurrentStep()">⇢ 渡した</button>'
-        + '<button class="act-btn act-skip" onclick="skipCurrentStep()">後回し</button>';
+      // 表示中のステップのtaskId/stepIdを使って操作する
+      var topTaskId = top.task.id;
+      var topStepId = top.step.id;
+      actionsEl.innerHTML = '<button class="act-btn act-done" id="nowCompleteBtn">✓ 完了</button>'
+        + '<button class="act-btn act-pass" id="nowPassBtn">⇢ 渡した</button>'
+        + '<button class="act-btn act-skip" id="nowSkipBtn">後回し</button>';
+      document.getElementById('nowCompleteBtn').addEventListener('click', function() {
+        completeSpecificStep(topTaskId, topStepId);
+      });
+      document.getElementById('nowPassBtn').addEventListener('click', function() {
+        passSpecificStep(topTaskId, topStepId);
+      });
+      document.getElementById('nowSkipBtn').addEventListener('click', function() {
+        skipSpecificStep(topTaskId, topStepId);
+      });
     }
   } else {
     nowZone.style.display = 'none';
