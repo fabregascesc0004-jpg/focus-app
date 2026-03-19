@@ -622,6 +622,24 @@ input[type="date"] {
   -webkit-appearance: none;
 }
 .tree-step-dl:focus { border-color: var(--green); }
+.tree-step-dl.hidden-dl { display: none; }
+
+/* 期限タグをクリッカブルに */
+.step-dl-tag.clickable {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.step-dl-tag.clickable:hover { opacity: 0.8; }
+.step-dl-tag.add-dl {
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 9px;
+  border: 1px dashed var(--border);
+}
+
+/* 編集ボタンを普段は非表示 */
+.tree-step-actions.hidden-actions { display: none; }
+.step-row { cursor: pointer; }
 
 /* 渡す時の期限入力 */
 .pass-dl-input {
@@ -819,8 +837,8 @@ input[type="date"] {
 .now-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 14px 18px 10px;
+  justify-content: space-between;
+  padding: 14px 18px 8px;
 }
 .now-pill {
   background: var(--green);
@@ -839,6 +857,25 @@ input[type="date"] {
   background: var(--orange);
   color: #000;
 }
+/* ステップ期限を右上に大きく表示 */
+.now-step-dl {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 99px;
+  background: rgba(0,229,160,0.1);
+  color: var(--green);
+}
+.now-step-dl.soon {
+  background: rgba(255,170,0,0.15);
+  color: #ffaa00;
+}
+.now-step-dl.overdue {
+  background: rgba(255,80,80,0.15);
+  color: #ff5050;
+}
+.now-step-dl.empty { display: none; }
+
 .pass-name-row {
   display: flex;
   gap: 8px;
@@ -868,14 +905,14 @@ input[type="date"] {
   50% { opacity:0.3; transform:scale(0.7); }
 }
 .now-task-name {
-  padding: 0 18px 6px;
+  padding: 0 18px 4px;
   font-size: 22px;
   font-weight: 700;
   color: var(--white);
   line-height: 1.3;
 }
 .now-parent-info {
-  padding: 0 18px 12px;
+  padding: 0 18px 8px;
   font-size: 11px;
   color: var(--text-dim);
   display: flex;
@@ -887,57 +924,54 @@ input[type="date"] {
   color: var(--green);
   opacity: 0.6;
 }
-.now-meta-row {
+/* サブ情報チップ */
+.now-sub-row {
   display: flex;
-  gap: 0;
-  padding: 10px 18px 14px;
-  border-top: 1px solid var(--border);
+  gap: 6px;
+  padding: 0 18px 14px;
+  flex-wrap: wrap;
 }
-.now-meta-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+.now-sub-chip {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--surface2);
+  color: var(--muted);
 }
-.now-meta-item + .now-meta-item {
-  border-left: 1px solid var(--border);
-  padding-left: 14px;
-  margin-left: 14px;
-}
-.meta-label {
-  font-size: 9px;
-  color: var(--text-dim);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.meta-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--white);
-}
-.meta-value.green { color: var(--green); }
-.meta-value.orange { color: #ffaa00; }
-.meta-value.red { color: #ff5050; }
-.meta-value.orange { color: var(--orange); }
+.now-sub-chip.green { color: var(--green); background: var(--green-dim); }
+.now-sub-chip.orange { color: var(--orange); background: var(--orange-dim); }
 
-.now-actions { display: flex; gap: 8px; padding: 0 16px 16px; }
+/* アクションボタン：完了を大きく、他を小さく */
+.now-actions { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 8px; }
 .act-btn {
-  flex: 1;
+  width: 100%;
   border: none;
-  border-radius: 12px;
-  padding: 11px 8px;
+  border-radius: 14px;
+  padding: 16px 8px;
   font-family: 'Noto Sans JP', sans-serif;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.15s;
   line-height: 1;
 }
 .act-done { background: var(--green); color: #000; }
 .act-done:hover { background: #00ffb3; transform: translateY(-1px); }
-.act-pass { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,149,0,0.25); flex: 0.9; }
+.now-actions-sub { display: flex; gap: 8px; }
+.act-btn-mini {
+  flex: 1;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 8px;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.act-pass { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,149,0,0.25); }
 .act-pass:hover { background: rgba(255,149,0,0.18); }
-.act-skip { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); flex: 0.7; }
+.act-skip { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
 
 /* All Done */
 .all-done-zone {
@@ -1602,31 +1636,21 @@ input[type="date"] {
     <div class="now-zone" id="nowZone" style="display:none">
       <div class="now-header">
         <div class="now-pill" id="nowPill"><div class="pulse-dot"></div>今やること</div>
+        <div class="now-step-dl" id="nowStepDeadline">-</div>
       </div>
       <div class="now-task-name" id="nowTaskName">-</div>
       <div class="now-parent-info" id="nowParentInfo">-</div>
-      <div class="now-meta-row">
-        <div class="now-meta-item">
-          <div class="meta-label">目安時間</div>
-          <div class="meta-value" id="nowMinutes">-</div>
-        </div>
-        <div class="now-meta-item">
-          <div class="meta-label">ボール</div>
-          <div class="meta-value" id="nowBall">-</div>
-        </div>
-        <div class="now-meta-item">
-          <div class="meta-label">締切</div>
-          <div class="meta-value" id="nowDeadline">-</div>
-        </div>
-        <div class="now-meta-item">
-          <div class="meta-label">ステップ期限</div>
-          <div class="meta-value" id="nowStepDeadline">-</div>
-        </div>
+      <div class="now-sub-row">
+        <span class="now-sub-chip" id="nowMinutes">-</span>
+        <span class="now-sub-chip" id="nowBall">-</span>
+        <span class="now-sub-chip" id="nowDeadline">-</span>
       </div>
       <div class="now-actions" id="nowActions">
         <button class="act-btn act-done" onclick="completeCurrentStep()">✓ 完了</button>
-        <button class="act-btn act-pass" onclick="passCurrentStep()">⇢ 渡した</button>
-        <button class="act-btn act-skip" onclick="skipCurrentStep()">後回し</button>
+        <div class="now-actions-sub">
+          <button class="act-btn-mini act-pass" onclick="passCurrentStep()">⇢ 渡した</button>
+          <button class="act-btn-mini act-skip" onclick="skipCurrentStep()">後回し</button>
+        </div>
       </div>
     </div>
 
@@ -1837,7 +1861,7 @@ input[type="date"] {
   <div class="settings-section">
     <div class="settings-title">バージョン情報</div>
     <div class="settings-desc">
-      FOCUS v2.4<br>
+      FOCUS v2.5<br>
       ADHDユーザーのためのタスク管理アプリ
     </div>
   </div>
@@ -3665,27 +3689,32 @@ async function renderFocusScreen() {
       pillEl.className = 'now-pill';
     }
 
-    document.getElementById('nowTaskName').textContent = top.step.text;
-    document.getElementById('nowParentInfo').textContent =
-      top.task.emoji + ' ' + top.task.title + ' › ステップ ' + (top.stepIndex + 1) + '/' + top.task.steps.length;
-    document.getElementById('nowMinutes').textContent = isWaiting ? '-' : top.step.minutes + '分';
-
-    let ballEl = document.getElementById('nowBall');
-    ballEl.textContent = top.step.ball;
-    ballEl.className = 'meta-value' + (top.step.ball === '自分' ? ' green' : ' orange');
-
-    document.getElementById('nowDeadline').textContent = top.task.deadline;
-
-    // ステップ期限
+    // ステップ期限（右上に大きく）
     let sdEl = document.getElementById('nowStepDeadline');
     if (top.step.deadline) {
       sdEl.textContent = formatDeadlineShort(top.step.deadline);
       let sdClass = getDeadlineClass(top.step.deadline);
-      sdEl.className = 'meta-value' + (sdClass === ' overdue' ? ' red' : sdClass === ' soon' ? ' orange' : '');
+      sdEl.className = 'now-step-dl' + (sdClass === ' overdue' ? ' overdue' : sdClass === ' soon' ? ' soon' : '');
     } else {
-      sdEl.textContent = '-';
-      sdEl.className = 'meta-value';
+      sdEl.textContent = '';
+      sdEl.className = 'now-step-dl empty';
     }
+
+    document.getElementById('nowTaskName').textContent = top.step.text;
+    document.getElementById('nowParentInfo').textContent =
+      top.task.emoji + ' ' + top.task.title + ' › ステップ ' + (top.stepIndex + 1) + '/' + top.task.steps.length;
+
+    // サブ情報チップ
+    let minEl = document.getElementById('nowMinutes');
+    minEl.textContent = isWaiting ? '' : '⏱ ' + top.step.minutes + '分';
+    minEl.style.display = isWaiting ? 'none' : '';
+
+    let ballEl = document.getElementById('nowBall');
+    ballEl.textContent = top.step.ball === '自分' ? '🟢 自分' : '⏳ ' + top.step.ball;
+    ballEl.className = 'now-sub-chip' + (top.step.ball === '自分' ? ' green' : ' orange');
+
+    let dlEl = document.getElementById('nowDeadline');
+    dlEl.textContent = '📅 ' + top.task.deadline;
 
     // アクションボタン
     let actionsEl = document.getElementById('nowActions');
@@ -3695,12 +3724,13 @@ async function renderFocusScreen() {
         resolveWaitingStep(top.task.id, top.stepIndex);
       });
     } else {
-      // 表示中のステップのtaskId/stepIdを使って操作する
       let topTaskId = top.task.id;
       let topStepId = top.step.id;
       actionsEl.innerHTML = '<button class="act-btn act-done" id="nowCompleteBtn">✓ 完了</button>'
-        + '<button class="act-btn act-pass" id="nowPassBtn">⇢ 渡した</button>'
-        + '<button class="act-btn act-skip" id="nowSkipBtn">後回し</button>';
+        + '<div class="now-actions-sub">'
+        + '<button class="act-btn-mini act-pass" id="nowPassBtn">⇢ 渡した</button>'
+        + '<button class="act-btn-mini act-skip" id="nowSkipBtn">後回し</button>'
+        + '</div>';
       document.getElementById('nowCompleteBtn').addEventListener('click', function() {
         completeSpecificStep(topTaskId, topStepId);
       });
@@ -3822,17 +3852,19 @@ async function renderFocusScreen() {
         else if (isWaiting) rightContent = '<span class="badge b-wait">' + cStep.ball.replace('相手：','') + '</span>';
         else rightContent = cStep.minutes + '分';
 
-        // 期限タグ
-        let dlTag = '';
+        // 期限タグ（タップで日付ピッカー展開）
+        let dlTagClickable = '';
         if (cStep.deadline && cStep.status !== 'done') {
           let dlClass = getDeadlineClass(cStep.deadline);
-          dlTag = '<span class="step-dl-tag' + dlClass + '">' + formatDeadlineShort(cStep.deadline) + '</span>';
+          dlTagClickable = '<span class="step-dl-tag clickable' + dlClass + '" data-toggle-dl="true">' + formatDeadlineShort(cStep.deadline) + '</span>';
+        } else if (!isDone) {
+          dlTagClickable = '<span class="step-dl-tag clickable add-dl" data-toggle-dl="true">+ 期限</span>';
         }
 
-        // 編集操作ボタン（完了済み以外）
+        // 編集ボタン（普段は非表示、ステップタップで展開）
         let editBtns = '';
         if (!isDone) {
-          editBtns = '<div class="tree-step-actions">';
+          editBtns = '<div class="tree-step-actions hidden-actions">';
           if (isWaiting) {
             editBtns += '<button class="tree-mini-btn tree-mini-resolve" data-tree-action="resolve" data-task-id="' + aTask.id + '" data-step-idx="' + ci + '" title="返事きた">✓</button>';
           }
@@ -3841,11 +3873,11 @@ async function renderFocusScreen() {
             + '</div>';
         }
 
-        // 期限編集（完了済み以外）
+        // 日付ピッカー（非表示、タグタップで展開）
         let dlEdit = '';
         if (!isDone) {
           let dlVal2 = cStep.deadline || '';
-          dlEdit = '<input type="date" class="tree-step-dl" value="' + dlVal2 + '" data-task-id="' + aTask.id + '" data-step-idx="' + ci + '" title="期限変更" />';
+          dlEdit = '<input type="date" class="tree-step-dl hidden-dl" value="' + dlVal2 + '" data-task-id="' + aTask.id + '" data-step-idx="' + ci + '" />';
         }
 
         let row = document.createElement('div');
@@ -3855,7 +3887,7 @@ async function renderFocusScreen() {
         row.innerHTML =
           '<div class="tree-drag-handle" draggable="true" data-tree-drag-task="' + aTask.id + '" data-tree-drag-idx="' + ci + '">⠿</div>'
           + '<div class="' + snClass + '">' + (isDone ? '✓' : (ci+1)) + '</div>'
-          + '<div class="' + textClass + '">' + cStep.text + dlTag + '</div>'
+          + '<div class="' + textClass + '">' + cStep.text + dlTagClickable + '</div>'
           + '<div class="step-right-tree">' + rightContent + dlEdit + '</div>'
           + editBtns;
         childWrap.appendChild(row);
@@ -3895,6 +3927,33 @@ async function renderFocusScreen() {
         let taskId = actionBtn.getAttribute('data-task-id');
         let stepIdx = parseInt(actionBtn.getAttribute('data-step-idx'));
         handleTreeStepAction(treeAction, taskId, stepIdx);
+        return;
+      }
+
+      // 期限タグタップ → 日付ピッカー展開
+      let dlToggle = e.target.closest('[data-toggle-dl]');
+      if (dlToggle) {
+        e.stopPropagation();
+        let row = dlToggle.closest('.step-row');
+        if (row) {
+          let dlInput = row.querySelector('.tree-step-dl');
+          if (dlInput) {
+            dlInput.classList.toggle('hidden-dl');
+            if (!dlInput.classList.contains('hidden-dl')) {
+              dlInput.showPicker ? dlInput.showPicker() : dlInput.focus();
+            }
+          }
+        }
+        return;
+      }
+
+      // ステップ行タップ → 編集ボタン表示/非表示
+      let stepRow = e.target.closest('.step-row');
+      if (stepRow && !e.target.closest('.tree-drag-handle') && !e.target.closest('.tree-step-dl')) {
+        let actions = stepRow.querySelector('.hidden-actions, .tree-step-actions');
+        if (actions) {
+          actions.classList.toggle('hidden-actions');
+        }
       }
     });
 
