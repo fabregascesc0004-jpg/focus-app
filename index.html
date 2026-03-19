@@ -1871,10 +1871,10 @@ input[type="date"] {
 // ============================================================
 
 // ── 定数 ──
-const STORAGE_KEY = 'focus_app_data';
-const PROVIDER_KEY = 'focus_ai_provider';   // 'gemini' or 'claude'
-const GEMINI_KEY = 'focus_gemini_key';
-const CLAUDE_KEY = 'focus_claude_key';
+let STORAGE_KEY = 'focus_app_data';
+let PROVIDER_KEY = 'focus_ai_provider';   // 'gemini' or 'claude'
+let GEMINI_KEY = 'focus_gemini_key';
+let CLAUDE_KEY = 'focus_claude_key';
 
 // ── AIプロバイダーの取得・保存 ──
 function getProvider() {
@@ -1910,10 +1910,10 @@ function isArtifactEnv() {
 // ============================================================
 // ユーザープロフィール（オンボーディングQ&A）
 // ============================================================
-const PROFILE_KEY = 'focus_user_profile';
+let PROFILE_KEY = 'focus_user_profile';
 
 // ── Q&Aの質問定義 ──
-const ONBOARDING_QUESTIONS = [
+let ONBOARDING_QUESTIONS = [
   {
     id: 'job',
     question: '職種と立場を教えて',
@@ -1994,10 +1994,10 @@ function hasProfile() {
 
 // ── プロフィールからAIプロンプト用テキストを生成 ──
 function buildProfilePrompt() {
-  const p = getProfile();
+  let p = getProfile();
   if (!p) { return ''; }
 
-  const lines = [];
+  let lines = [];
   lines.push('【ユーザー情報】');
   if (p.job) { lines.push('職種・立場：' + p.job); }
   if (p.procrastination) { lines.push('先延ばしの主因：' + p.procrastination); }
@@ -2013,11 +2013,11 @@ function buildProfilePrompt() {
 // ============================================================
 // カテゴリー管理
 // ============================================================
-const CATEGORIES_KEY = 'focus_categories';
+let CATEGORIES_KEY = 'focus_categories';
 let selectedCategory = '';
 
 // ── 職種・立場からデフォルトカテゴリーを生成 ──
-const CATEGORY_RULES = [
+let CATEGORY_RULES = [
   { keywords: ['医師', '医者', 'ドクター'], cats: ['診療・外来', '書類・カルテ', '学会・研修'] },
   { keywords: ['看護', 'ナース'], cats: ['患者対応', '記録・申し送り', 'シフト管理'] },
   { keywords: ['薬剤', '薬局'], cats: ['調剤・服薬指導', '在庫管理', '書類・届出'] },
@@ -2055,9 +2055,9 @@ const CATEGORY_RULES = [
 
 function getDefaultCategories(job) {
   if (!job) { return ['仕事', 'プライベート']; }
-  const j = job.toLowerCase();
+  let j = job.toLowerCase();
   for (let i = 0; i < CATEGORY_RULES.length; i++) {
-    const rule = CATEGORY_RULES[i];
+    let rule = CATEGORY_RULES[i];
     for (let k = 0; k < rule.keywords.length; k++) {
       if (j.indexOf(rule.keywords[k]) !== -1) {
         return rule.cats.concat(['プライベート']);
@@ -2075,7 +2075,7 @@ function getCategories() {
   } catch (e) {}
 
   // 初回はプロフィールの職種から生成
-  const p = getProfile();
+  let p = getProfile();
   let cats = getDefaultCategories(p ? p.job : '');
   saveCategories(cats);
   return cats;
@@ -2088,7 +2088,7 @@ function saveCategories(cats) {
 
 // ── カテゴリーバーの描画 ──
 function renderCategoryBar() {
-  const bar = document.getElementById('categoryBar');
+  let bar = document.getElementById('categoryBar');
   if (!bar) { return; }
 
   let cats = getCategories();
@@ -2103,11 +2103,11 @@ function renderCategoryBar() {
   bar.innerHTML = html;
 
   // カテゴリー選択イベント
-  const chips = bar.querySelectorAll('.category-chip');
+  let chips = bar.querySelectorAll('.category-chip');
   for (let j = 0; j < chips.length; j++) {
     chips[j].addEventListener('click', function() {
       let idx = parseInt(this.getAttribute('data-cat'));
-      const clickedCat = cats[idx];
+      let clickedCat = cats[idx];
       if (selectedCategory === clickedCat) {
         selectedCategory = '';
       } else {
@@ -2118,7 +2118,7 @@ function renderCategoryBar() {
   }
 
   // 編集ボタン → 設定画面へジャンプ
-  const editBtn = document.getElementById('catEditJump');
+  let editBtn = document.getElementById('catEditJump');
   if (editBtn) {
     editBtn.addEventListener('click', function() {
       switchTab('settings');
@@ -2128,7 +2128,7 @@ function renderCategoryBar() {
 
 // ── 設定画面のカテゴリーエディター描画 ──
 function renderCatEditor() {
-  const listEl = document.getElementById('catList');
+  let listEl = document.getElementById('catList');
   if (!listEl) { return; }
 
   let cats = getCategories();
@@ -2146,12 +2146,12 @@ function renderCatEditor() {
   listEl.innerHTML = html;
 
   // 削除ボタンのイベント
-  const delBtns = listEl.querySelectorAll('.cat-item-del');
+  let delBtns = listEl.querySelectorAll('.cat-item-del');
   for (let d = 0; d < delBtns.length; d++) {
     delBtns[d].addEventListener('click', function() {
       let idx = parseInt(this.getAttribute('data-delidx'));
-      const currentCats = getCategories();
-      const removed = currentCats[idx];
+      let currentCats = getCategories();
+      let removed = currentCats[idx];
       currentCats.splice(idx, 1);
       saveCategories(currentCats);
       if (selectedCategory === removed) { selectedCategory = ''; }
@@ -2172,7 +2172,7 @@ function addCategory(name) {
     }
   }
   // プライベートの前に挿入
-  const privIdx = cats.indexOf('プライベート');
+  let privIdx = cats.indexOf('プライベート');
   if (privIdx !== -1) {
     cats.splice(privIdx, 0, name);
   } else {
@@ -2196,25 +2196,25 @@ function startOnboarding() {
 }
 
 function renderOnboardingStep() {
-  const q = ONBOARDING_QUESTIONS[obCurrentStep];
-  const total = ONBOARDING_QUESTIONS.length;
+  let q = ONBOARDING_QUESTIONS[obCurrentStep];
+  let total = ONBOARDING_QUESTIONS.length;
 
   // プログレスバー
-  const progressHtml = '';
+  let progressHtml = '';
   for (let i = 0; i < total; i++) {
     progressHtml += '<div class="onboarding-progress-dot' + (i <= obCurrentStep ? ' filled' : '') + '"></div>';
   }
   document.getElementById('obProgress').innerHTML = progressHtml;
 
   // 質問エリア
-  const areaEl = document.getElementById('obQuestionArea');
+  let areaEl = document.getElementById('obQuestionArea');
   let html = '<div class="onboarding-question">' + q.question + '</div>';
   if (q.hint) {
     html += '<div class="onboarding-hint">' + q.hint + '</div>';
   }
 
   if (q.type === 'text') {
-    const savedVal = obAnswers[q.id] || '';
+    let savedVal = obAnswers[q.id] || '';
     html += '<input class="onboarding-input" id="obTextInput" type="text"'
       + ' placeholder="' + q.placeholder + '"'
       + ' value="' + savedVal + '">';
@@ -2227,10 +2227,10 @@ function renderOnboardingStep() {
     }
     html += '</div>';
   } else if (q.type === 'multi') {
-    const selectedArr = obAnswers[q.id] || [];
+    let selectedArr = obAnswers[q.id] || [];
     html += '<div class="onboarding-options">';
     for (let k = 0; k < q.options.length; k++) {
-      const msel = (selectedArr.indexOf(q.options[k]) !== -1) ? ' selected' : '';
+      let msel = (selectedArr.indexOf(q.options[k]) !== -1) ? ' selected' : '';
       html += '<button class="onboarding-opt multi' + msel + '" data-val="' + k + '">'
         + q.options[k] + '</button>';
     }
@@ -2241,26 +2241,26 @@ function renderOnboardingStep() {
 
   // イベント登録
   if (q.type === 'single') {
-    const opts = areaEl.querySelectorAll('.onboarding-opt');
+    let opts = areaEl.querySelectorAll('.onboarding-opt');
     for (let oi = 0; oi < opts.length; oi++) {
       opts[oi].addEventListener('click', function() {
         let idx = parseInt(this.getAttribute('data-val'));
         obAnswers[q.id] = q.options[idx];
         // 選択状態を更新
-        const allOpts = areaEl.querySelectorAll('.onboarding-opt');
+        let allOpts = areaEl.querySelectorAll('.onboarding-opt');
         for (let x = 0; x < allOpts.length; x++) { allOpts[x].classList.remove('selected'); }
         this.classList.add('selected');
         updateObNextBtn();
       });
     }
   } else if (q.type === 'multi') {
-    const mopts = areaEl.querySelectorAll('.onboarding-opt');
+    let mopts = areaEl.querySelectorAll('.onboarding-opt');
     for (let mi = 0; mi < mopts.length; mi++) {
       mopts[mi].addEventListener('click', function() {
         let idx = parseInt(this.getAttribute('data-val'));
-        const arr = obAnswers[q.id] || [];
+        let arr = obAnswers[q.id] || [];
         let val = q.options[idx];
-        const pos = arr.indexOf(val);
+        let pos = arr.indexOf(val);
         if (pos === -1) { arr.push(val); } else { arr.splice(pos, 1); }
         obAnswers[q.id] = arr;
         this.classList.toggle('selected');
@@ -2280,7 +2280,7 @@ function renderOnboardingStep() {
   document.getElementById('obBack').style.display = (obCurrentStep === 0) ? 'none' : 'block';
 
   // 最後の質問なら「はじめる」ボタン
-  const nextBtn = document.getElementById('obNext');
+  let nextBtn = document.getElementById('obNext');
   if (obCurrentStep === total - 1) {
     nextBtn.textContent = 'はじめる！';
   } else {
@@ -2291,8 +2291,8 @@ function renderOnboardingStep() {
 }
 
 function updateObNextBtn() {
-  const q = ONBOARDING_QUESTIONS[obCurrentStep];
-  const btn = document.getElementById('obNext');
+  let q = ONBOARDING_QUESTIONS[obCurrentStep];
+  let btn = document.getElementById('obNext');
   let answered = false;
 
   if (q.type === 'text') {
@@ -2306,7 +2306,7 @@ function updateObNextBtn() {
 }
 
 function finishOnboarding() {
-  const profile = {
+  let profile = {
     job: obAnswers.job || '',
     procrastination: obAnswers.procrastination || '',
     focusMinutes: obAnswers.focusMinutes || '',
@@ -2352,7 +2352,7 @@ let _inMemoryData = null;
 // 受け取るもの：なし
 // 返すもの：Promise<{ tasks: Task[], updatedAt: string }>
 async function loadData() {
-  const EMPTY = { tasks: [], updatedAt: new Date().toISOString() };
+  let EMPTY = { tasks: [], updatedAt: new Date().toISOString() };
 
   // ① localStorage（通常のブラウザ環境）
   try {
@@ -2366,9 +2366,9 @@ async function loadData() {
   // ② window.storage API（Artifact環境の永続ストレージ）
   if (window.storage && typeof window.storage.get === 'function') {
     try {
-      const result = await window.storage.get(STORAGE_KEY);
+      let result = await window.storage.get(STORAGE_KEY);
       if (result && result.value) {
-        const parsed2 = JSON.parse(result.value);
+        let parsed2 = JSON.parse(result.value);
         if (parsed2 && Array.isArray(parsed2.tasks)) return parsed2;
       }
     } catch (e) { /* キー未存在 → 正常 */ }
@@ -2413,7 +2413,7 @@ async function saveData(data) {
 
 // ── ヘッダー更新 ──
 function updateHeaderBadge(data) {
-  const count = 0;
+  let count = 0;
   for (let i = 0; i < data.tasks.length; i++) {
     if (data.tasks[i].status === 'active') count++;
   }
@@ -2421,8 +2421,8 @@ function updateHeaderBadge(data) {
 }
 
 function updateHeaderDate() {
-  const now = new Date();
-  const days = ['日','月','火','水','木','金','土'];
+  let now = new Date();
+  let days = ['日','月','火','水','木','金','土'];
   document.getElementById('headerDate').textContent =
     (now.getMonth()+1) + '月' + now.getDate() + '日（' + days[now.getDay()] + '）';
 }
@@ -2437,7 +2437,7 @@ function showToast(msg) {
 
 // ── 独自確認ダイアログ（confirm()代替） ──
 function showConfirmDialog(message, onConfirm) {
-  const overlay = document.createElement('div');
+  let overlay = document.createElement('div');
   overlay.className = 'confirm-overlay';
   overlay.innerHTML = '<div class="confirm-box">'
     + '<div class="confirm-msg">' + message + '</div>'
@@ -2466,8 +2466,8 @@ async function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
 
-  const screenEl = document.getElementById('screen-' + tab);
-  const tabEl = document.getElementById('tab-' + tab);
+  let screenEl = document.getElementById('screen-' + tab);
+  let tabEl = document.getElementById('tab-' + tab);
   if (screenEl) screenEl.classList.add('active');
   if (tabEl) tabEl.classList.add('active');
 
@@ -2492,8 +2492,8 @@ function fillExample(el) {
 
 function setDecomposeStep(active) {
   [1,2,3].forEach(function(i) {
-    const num = document.getElementById('sn'+i);
-    const label = document.getElementById('sl'+i);
+    let num = document.getElementById('sn'+i);
+    let label = document.getElementById('sl'+i);
     if (i < active) {
       num.className = 'step-ind-num done';
       num.textContent = '✓';
@@ -2512,8 +2512,8 @@ function setDecomposeStep(active) {
 
 // ── AI分解実行 ──
 async function startDecompose() {
-  const input = document.getElementById('taskInput').value.trim();
-  const errorMsg = document.getElementById('errorMsg');
+  let input = document.getElementById('taskInput').value.trim();
+  let errorMsg = document.getElementById('errorMsg');
 
   if (!input) {
     errorMsg.textContent = 'タスクを入力してください';
@@ -2523,18 +2523,18 @@ async function startDecompose() {
   errorMsg.style.display = 'none';
 
   let deadline = document.getElementById('deadline').value;
-  const deadlineText = deadline ? '締切：' + deadline : '締切：未設定';
+  let deadlineText = deadline ? '締切：' + deadline : '締切：未設定';
 
   // Thinking表示
   document.getElementById('phase1').style.display = 'none';
   document.getElementById('aiThinking').style.display = 'flex';
   setDecomposeStep(2);
 
-  const thinkingMessages = ['タスクを抽出しています...', 'ステップに分解しています...', '優先順位を判定しています...', 'ボールを確認しています...'];
+  let thinkingMessages = ['タスクを抽出しています...', 'ステップに分解しています...', '優先順位を判定しています...', 'ボールを確認しています...'];
   let messageIndex = 0;
-  const stepEl = document.getElementById('thinkingStep');
+  let stepEl = document.getElementById('thinkingStep');
   stepEl.style.opacity = '1';
-  const stepInterval = setInterval(function() {
+  let stepInterval = setInterval(function() {
     messageIndex = (messageIndex + 1) % thinkingMessages.length;
     stepEl.style.opacity = '0';
     setTimeout(function() {
@@ -2545,10 +2545,10 @@ async function startDecompose() {
 
   try {
     // ── プロフィール情報をプロンプトに注入 ──
-    const profilePrompt = buildProfilePrompt();
-    const categoryText = selectedCategory ? '【カテゴリー】' + selectedCategory + '\nこのカテゴリーに適した分解をせよ。\n' : '';
+    let profilePrompt = buildProfilePrompt();
+    let categoryText = selectedCategory ? '【カテゴリー】' + selectedCategory + '\nこのカテゴリーに適した分解をせよ。\n' : '';
 
-    const promptText = 'タスク分解AI。入力からタスクを抽出し、実行順に小さなステップに分解せよ。\n\n'
+    let promptText = 'タスク分解AI。入力からタスクを抽出し、実行順に小さなステップに分解せよ。\n\n'
       + '今日の日付：' + new Date().toISOString().slice(0, 10) + '\n\n'
       + (profilePrompt ? profilePrompt + '\n\n' : '')
       + (categoryText ? categoryText + '\n' : '')
@@ -2569,7 +2569,7 @@ async function startDecompose() {
 
     // ── AIプロバイダーの判定とAPI呼び出し ──
     let provider = getProvider();
-    const apiKey = getApiKey(provider);
+    let apiKey = getApiKey(provider);
 
     // Artifact環境（claude.ai内）ではClaude APIがキー不要で使える
     if (isArtifactEnv() && !apiKey) {
@@ -2588,7 +2588,7 @@ async function startDecompose() {
     let response;
     if (provider === 'gemini') {
       // ── Gemini API呼び出し ──
-      const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+      let geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
       response = await fetch(geminiUrl, {
         method: 'POST',
         headers: {
@@ -2601,7 +2601,7 @@ async function startDecompose() {
       });
     } else {
       // ── Claude API呼び出し ──
-      const claudeHeaders = { 'Content-Type': 'application/json' };
+      let claudeHeaders = { 'Content-Type': 'application/json' };
       if (apiKey) {
         claudeHeaders['x-api-key'] = apiKey;
         claudeHeaders['anthropic-version'] = '2023-06-01';
@@ -2654,7 +2654,7 @@ async function startDecompose() {
       rawText = textBlock.text;
     }
     rawText = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    let jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('AIの応答からJSONを抽出できませんでした');
 
     let parsed = JSON.parse(jsonMatch[0]);
@@ -2704,14 +2704,14 @@ function renderReview() {
     let totalMin = 0;
     for (let m = 0; m < task.steps.length; m++) totalMin += (task.steps[m].minutes || 0);
 
-    const div = document.createElement('div');
+    let div = document.createElement('div');
     div.className = 'review-parent';
 
-    const stepsHtml = '';
+    let stepsHtml = '';
     for (let si = 0; si < task.steps.length; si++) {
       let step = task.steps[si];
-      const isSelf = step.ball === '自分';
-      const dlVal = step.deadline || '';
+      let isSelf = step.ball === '自分';
+      let dlVal = step.deadline || '';
       // 相手名を抽出（"相手：田中" → "田中"）
       let ballName = '';
       if (!isSelf && step.ball.indexOf('：') !== -1) {
@@ -2719,7 +2719,7 @@ function renderReview() {
       } else if (!isSelf && step.ball.indexOf(':') !== -1) {
         ballName = step.ball.split(':')[1] || '';
       }
-      const nameInput = isSelf ? ''
+      let nameInput = isSelf ? ''
         : '<input type="text" class="ball-name-input" placeholder="相手の名前" value="' + ballName.replace(/"/g, '&quot;') + '" data-ti="' + ti + '" data-si="' + si + '" />';
 
       stepsHtml += '<div class="step-item" data-drag-ti="' + ti + '" data-drag-si="' + si + '">'
@@ -2752,7 +2752,7 @@ function renderReview() {
 
   // イベント委譲でボタンを処理
   tree.onclick = function(e) {
-    const target = e.target.closest('[data-action]');
+    let target = e.target.closest('[data-action]');
     if (!target) return;
     let action = target.getAttribute('data-action');
     let ti = parseInt(target.getAttribute('data-ti'));
@@ -2766,7 +2766,7 @@ function renderReview() {
       renderReview();
     } else if (action === 'dup') {
       let orig = parsedTasks[ti].steps[si];
-      const copy = {
+      let copy = {
         text: orig.text,
         ball: orig.ball,
         minutes: orig.minutes,
@@ -2778,7 +2778,7 @@ function renderReview() {
       parsedTasks[ti].steps.splice(si + 1, 0, { text: '新しいステップ', ball: '自分', minutes: 10, deadline: '' });
       renderReview();
     } else if (action === 'toggle-ball') {
-      const currentBall = parsedTasks[ti].steps[si].ball;
+      let currentBall = parsedTasks[ti].steps[si].ball;
       if (currentBall === '自分') {
         parsedTasks[ti].steps[si].ball = '相手：';
       } else {
@@ -2796,13 +2796,13 @@ function renderReview() {
       parsedTasks[ti].steps[si].text = e.target.value;
     }
     if (e.target.classList.contains('step-deadline-input')) {
-      const ti2 = parseInt(e.target.getAttribute('data-ti'));
-      const si2 = parseInt(e.target.getAttribute('data-si'));
+      let ti2 = parseInt(e.target.getAttribute('data-ti'));
+      let si2 = parseInt(e.target.getAttribute('data-si'));
       parsedTasks[ti2].steps[si2].deadline = e.target.value;
     }
     if (e.target.classList.contains('ball-name-input')) {
-      const ti3 = parseInt(e.target.getAttribute('data-ti'));
-      const si3 = parseInt(e.target.getAttribute('data-si'));
+      let ti3 = parseInt(e.target.getAttribute('data-ti'));
+      let si3 = parseInt(e.target.getAttribute('data-si'));
       let name = e.target.value.trim();
       parsedTasks[ti3].steps[si3].ball = '相手：' + name;
     }
@@ -2823,9 +2823,9 @@ function renderReview() {
   });
 
   tree.addEventListener('dragend', function(e) {
-    const items = tree.querySelectorAll('.step-item.dragging');
+    let items = tree.querySelectorAll('.step-item.dragging');
     for (let i = 0; i < items.length; i++) { items[i].classList.remove('dragging'); }
-    const overs = tree.querySelectorAll('.drag-over');
+    let overs = tree.querySelectorAll('.drag-over');
     for (let j = 0; j < overs.length; j++) { overs[j].classList.remove('drag-over'); }
     dragTi = null;
     dragSi = null;
@@ -2835,10 +2835,10 @@ function renderReview() {
     e.preventDefault();
     let item = e.target.closest('.step-item');
     if (!item) { return; }
-    const overTi = parseInt(item.getAttribute('data-drag-ti'));
+    let overTi = parseInt(item.getAttribute('data-drag-ti'));
     if (dragTi === null || overTi !== dragTi) { return; }
     e.dataTransfer.dropEffect = 'move';
-    const overs = tree.querySelectorAll('.drag-over');
+    let overs = tree.querySelectorAll('.drag-over');
     for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
     item.classList.add('drag-over');
   });
@@ -2886,12 +2886,12 @@ function renderReview() {
       return;
     }
     e.preventDefault();
-    const touch = e.touches[0];
+    let touch = e.touches[0];
     let el = document.elementFromPoint(touch.clientX, touch.clientY);
     if (!el) { return; }
-    const overItem = el.closest('.step-item');
+    let overItem = el.closest('.step-item');
     // 全クリア
-    const overs = tree.querySelectorAll('.drag-over');
+    let overs = tree.querySelectorAll('.drag-over');
     for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
     if (overItem && parseInt(overItem.getAttribute('data-drag-ti')) === touchDragTi) {
       overItem.classList.add('drag-over');
@@ -2902,11 +2902,11 @@ function renderReview() {
     clearTimeout(touchTimer);
 
     // ドロップ先を先に特定（クリア前に）
-    const overs = tree.querySelectorAll('.drag-over');
-    const dropItem = overs.length > 0 ? overs[0] : null;
+    let overs = tree.querySelectorAll('.drag-over');
+    let dropItem = overs.length > 0 ? overs[0] : null;
 
     // 全dragging/drag-overをクリア
-    const allDragging = tree.querySelectorAll('.dragging');
+    let allDragging = tree.querySelectorAll('.dragging');
     for (let d = 0; d < allDragging.length; d++) { allDragging[d].classList.remove('dragging'); }
     for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
 
@@ -2923,7 +2923,7 @@ function renderReview() {
       let dropSi = parseInt(dropItem.getAttribute('data-drag-si'));
       if (touchDragTi === dropTi && touchDragSi !== dropSi) {
         let steps = parsedTasks[touchDragTi].steps;
-        const movedStep = steps.splice(touchDragSi, 1)[0];
+        let movedStep = steps.splice(touchDragSi, 1)[0];
         steps.splice(dropSi, 0, movedStep);
         renderReview();
       }
@@ -2938,9 +2938,9 @@ function renderReview() {
   tree.addEventListener('touchcancel', function() {
     clearTimeout(touchTimer);
     touchActive = false;
-    const allDragging = tree.querySelectorAll('.dragging');
+    let allDragging = tree.querySelectorAll('.dragging');
     for (let d = 0; d < allDragging.length; d++) { allDragging[d].classList.remove('dragging'); }
-    const overs = tree.querySelectorAll('.drag-over');
+    let overs = tree.querySelectorAll('.drag-over');
     for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
     touchDragTi = null;
     touchDragSi = null;
@@ -3145,7 +3145,7 @@ function advanceToNextStep(data, taskId, stepId) {
     // 他タスクから探す（ただしそのタスクに既にcurrentがなければ）
     for (let oi = 0; oi < data.tasks.length; oi++) {
       if (foundNext) break;
-      const otherTask = data.tasks[oi];
+      let otherTask = data.tasks[oi];
       if (otherTask.status !== 'active' || otherTask.id === taskId) continue;
       // 既にcurrentがあるタスクはスキップ
       let otherHasCurrent = false;
@@ -3200,7 +3200,7 @@ async function completeSpecificStep(taskId, stepId) {
 // ── 特定ステップを渡す（期限優先表示用） ──
 function passSpecificStep(taskId, stepId) {
   // 名前＋期限入力UIを表示
-  const actionsEl = document.getElementById('nowActions');
+  let actionsEl = document.getElementById('nowActions');
   actionsEl.innerHTML = '<div class="pass-name-row">'
     + '<input type="text" class="pass-name-input" id="passNameInput" placeholder="相手の名前（任意）" />'
     + '<input type="date" class="pass-dl-input" id="passDlInput" title="返事待ちの期限" />'
@@ -3247,7 +3247,7 @@ async function doPassSpecificStep(taskId, stepId, personName, deadline) {
     }
 
     await saveData(data);
-    const toastName = personName ? personName + 'に' : '相手に';
+    let toastName = personName ? personName + 'に' : '相手に';
     showToast('⇢ ' + toastName + '渡しました');
     await renderFocusScreen();
   } catch (e) {
@@ -3395,7 +3395,7 @@ async function deleteTask(taskId) {
   console.log('[deleteTask]', taskId);
   try {
     let data = await loadData();
-    const filtered = [];
+    let filtered = [];
     for (let i = 0; i < data.tasks.length; i++) {
       if (data.tasks[i].id !== taskId) filtered.push(data.tasks[i]);
     }
@@ -3418,7 +3418,7 @@ async function addStepToTask(taskId) {
     }
     if (!task) { showToast('❌ タスクが見つかりません'); return; }
 
-    const newStep = {
+    let newStep = {
       id: 'step_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       text: '新しいステップ',
       ball: '自分',
@@ -3460,7 +3460,7 @@ async function handleTreeStepAction(action, taskId, stepIdx) {
 
     if (action === 'dup') {
       let orig = task.steps[stepIdx];
-      const copy = {
+      let copy = {
         id: 'step_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
         text: orig.text,
         ball: orig.ball,
@@ -3548,10 +3548,10 @@ async function updateStepDeadline(taskId, stepIdx, newDeadline) {
 
 // ── ツリー開閉 ──
 function toggleTree(panelId, chevId) {
-  const panel = document.getElementById(panelId);
-  const chev = document.getElementById(chevId);
+  let panel = document.getElementById(panelId);
+  let chev = document.getElementById(chevId);
   if (!panel) return;
-  const isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
+  let isOpen = panel.style.maxHeight !== '0px' && panel.style.maxHeight !== '';
   panel.style.maxHeight = isOpen ? '0px' : '2000px';
   if (chev) chev.classList.toggle('open', !isOpen);
 }
@@ -3576,12 +3576,12 @@ function getEarliestStepDeadline(task) {
 
 function getDeadlineClass(deadlineStr) {
   if (!deadlineStr) { return ''; }
-  const today = new Date();
+  let today = new Date();
   today.setHours(0,0,0,0);
   let parts = deadlineStr.split('-');
   let dl = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
   dl.setHours(0,0,0,0);
-  const diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
+  let diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
   if (diff < 0) { return ' overdue'; }
   if (diff <= 2) { return ' soon'; }
   return '';
@@ -3592,11 +3592,11 @@ function formatDeadlineShort(deadlineStr) {
   let parts = deadlineStr.split('-');
   let m = parseInt(parts[1]);
   let d = parseInt(parts[2]);
-  const today = new Date();
+  let today = new Date();
   today.setHours(0,0,0,0);
   let dl = new Date(parseInt(parts[0]), m - 1, d);
   dl.setHours(0,0,0,0);
-  const diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
+  let diff = Math.floor((dl - today) / (1000 * 60 * 60 * 24));
   if (diff < 0) { return m + '/' + d + '(過ぎた)'; }
   if (diff === 0) { return '今日まで'; }
   if (diff === 1) { return '明日まで'; }
@@ -3608,8 +3608,8 @@ async function renderFocusScreen() {
   let tasks = data.tasks;
   updateHeaderBadge(data);
 
-  const emptyEl = document.getElementById('emptyState');
-  const focusEl = document.getElementById('focusContent');
+  let emptyEl = document.getElementById('emptyState');
+  let focusEl = document.getElementById('focusContent');
 
   if (tasks.length === 0) {
     emptyEl.style.display = 'flex';
@@ -3622,11 +3622,11 @@ async function renderFocusScreen() {
 
   // ── 「今やること」の特定（期限が近い順に統合） ──
   // current + waiting を全て集めて期限が近い順にソート
-  const actionableSteps = [];
+  let actionableSteps = [];
   for (let at = 0; at < tasks.length; at++) {
     if (tasks[at].status !== 'active') continue;
     for (let as2 = 0; as2 < tasks[at].steps.length; as2++) {
-      const st = tasks[at].steps[as2];
+      let st = tasks[at].steps[as2];
       if (st.status === 'current' || st.status === 'waiting') {
         actionableSteps.push({ task: tasks[at], step: st, stepIndex: as2 });
       }
@@ -3645,18 +3645,18 @@ async function renderFocusScreen() {
   // ツリー描画用にcurrentステップも特定しておく
   let current = findCurrentStep(tasks);
 
-  const nowZone = document.getElementById('nowZone');
-  const allDoneZone = document.getElementById('allDoneZone');
+  let nowZone = document.getElementById('nowZone');
+  let allDoneZone = document.getElementById('allDoneZone');
 
   if (actionableSteps.length > 0) {
-    const top = actionableSteps[0];
+    let top = actionableSteps[0];
     let isWaiting = top.step.status === 'waiting';
 
     nowZone.style.display = 'block';
     allDoneZone.style.display = 'none';
 
     // ピル
-    const pillEl = document.getElementById('nowPill');
+    let pillEl = document.getElementById('nowPill');
     if (isWaiting) {
       pillEl.textContent = '⏳ 相手の返事待ち';
       pillEl.className = 'now-pill now-pill-waiting';
@@ -3670,17 +3670,17 @@ async function renderFocusScreen() {
       top.task.emoji + ' ' + top.task.title + ' › ステップ ' + (top.stepIndex + 1) + '/' + top.task.steps.length;
     document.getElementById('nowMinutes').textContent = isWaiting ? '-' : top.step.minutes + '分';
 
-    const ballEl = document.getElementById('nowBall');
+    let ballEl = document.getElementById('nowBall');
     ballEl.textContent = top.step.ball;
     ballEl.className = 'meta-value' + (top.step.ball === '自分' ? ' green' : ' orange');
 
     document.getElementById('nowDeadline').textContent = top.task.deadline;
 
     // ステップ期限
-    const sdEl = document.getElementById('nowStepDeadline');
+    let sdEl = document.getElementById('nowStepDeadline');
     if (top.step.deadline) {
       sdEl.textContent = formatDeadlineShort(top.step.deadline);
-      const sdClass = getDeadlineClass(top.step.deadline);
+      let sdClass = getDeadlineClass(top.step.deadline);
       sdEl.className = 'meta-value' + (sdClass === ' overdue' ? ' red' : sdClass === ' soon' ? ' orange' : '');
     } else {
       sdEl.textContent = '-';
@@ -3688,7 +3688,7 @@ async function renderFocusScreen() {
     }
 
     // アクションボタン
-    const actionsEl = document.getElementById('nowActions');
+    let actionsEl = document.getElementById('nowActions');
     if (isWaiting) {
       actionsEl.innerHTML = '<button class="act-btn act-done" id="nowResolveBtn">✓ 返事きた</button>';
       document.getElementById('nowResolveBtn').addEventListener('click', function() {
@@ -3696,8 +3696,8 @@ async function renderFocusScreen() {
       });
     } else {
       // 表示中のステップのtaskId/stepIdを使って操作する
-      const topTaskId = top.task.id;
-      const topStepId = top.step.id;
+      let topTaskId = top.task.id;
+      let topStepId = top.step.id;
       actionsEl.innerHTML = '<button class="act-btn act-done" id="nowCompleteBtn">✓ 完了</button>'
         + '<button class="act-btn act-pass" id="nowPassBtn">⇢ 渡した</button>'
         + '<button class="act-btn act-skip" id="nowSkipBtn">後回し</button>';
@@ -3735,12 +3735,12 @@ async function renderFocusScreen() {
       if (tasks[pi].steps[ps].status === 'done') doneSteps++;
     }
   }
-  const pct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+  let pct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
   document.getElementById('progFill').style.width = pct + '%';
   document.getElementById('progLabel').textContent = doneSteps + ' / ' + totalSteps + ' 完了';
 
   // ── ツリー描画 ──
-  const container = document.getElementById('treeContainer');
+  let container = document.getElementById('treeContainer');
   container.innerHTML = '';
 
   let activeTasks = [], doneTasks = [];
@@ -3761,7 +3761,7 @@ async function renderFocusScreen() {
       return dlA < dlB ? -1 : dlA > dlB ? 1 : 0;
     });
 
-    const treeLabel = document.createElement('div');
+    let treeLabel = document.createElement('div');
     treeLabel.className = 'tree-section-label';
     treeLabel.textContent = 'タスク全体';
     container.appendChild(treeLabel);
@@ -3770,23 +3770,23 @@ async function renderFocusScreen() {
     tree.className = 'tree';
 
     for (let ai = 0; ai < activeTasks.length; ai++) {
-      const aTask = activeTasks[ai];
-      const isCurrentTask = current && current.task.id === aTask.id;
-      const panelId = 'panel_' + ai;
-      const chevId = 'chev_' + ai;
-      const doneCount = 0;
+      let aTask = activeTasks[ai];
+      let isCurrentTask = current && current.task.id === aTask.id;
+      let panelId = 'panel_' + ai;
+      let chevId = 'chev_' + ai;
+      let doneCount = 0;
       for (let dc = 0; dc < aTask.steps.length; dc++) {
         if (aTask.steps[dc].status === 'done') doneCount++;
       }
 
-      const parentDiv = document.createElement('div');
-      const parentRow = document.createElement('div');
+      let parentDiv = document.createElement('div');
+      let parentRow = document.createElement('div');
       parentRow.className = 'parent-row' + (isCurrentTask ? ' is-active' : '');
       parentRow.setAttribute('data-panel', panelId);
       parentRow.setAttribute('data-chev', chevId);
       parentRow.onclick = function() {
-        const pid = this.getAttribute('data-panel');
-        const cid = this.getAttribute('data-chev');
+        let pid = this.getAttribute('data-panel');
+        let cid = this.getAttribute('data-chev');
         toggleTree(pid, cid);
       };
 
@@ -3801,20 +3801,20 @@ async function renderFocusScreen() {
 
       parentDiv.appendChild(parentRow);
 
-      const childWrap = document.createElement('div');
+      let childWrap = document.createElement('div');
       childWrap.className = 'children-wrap';
       childWrap.id = panelId;
       childWrap.style.maxHeight = isCurrentTask ? '2000px' : '0px';
 
       for (let ci = 0; ci < aTask.steps.length; ci++) {
-        const cStep = aTask.steps[ci];
-        const isCurrent = cStep.status === 'current';
-        const isDone = cStep.status === 'done';
+        let cStep = aTask.steps[ci];
+        let isCurrent = cStep.status === 'current';
+        let isDone = cStep.status === 'done';
         let isWaiting = cStep.status === 'waiting';
 
-        const rowClass = 'step-row' + (isCurrent ? ' step-now' : '') + (isDone ? ' step-done-row' : '');
-        const snClass = 'sn' + (isCurrent ? ' sn-now' : isDone ? ' sn-done' : isWaiting ? ' sn-wait' : ' sn-next');
-        const textClass = 'step-text-tree' + (isCurrent ? ' t-now' : isDone ? ' t-done' : isWaiting ? ' t-wait' : '');
+        let rowClass = 'step-row' + (isCurrent ? ' step-now' : '') + (isDone ? ' step-done-row' : '');
+        let snClass = 'sn' + (isCurrent ? ' sn-now' : isDone ? ' sn-done' : isWaiting ? ' sn-wait' : ' sn-next');
+        let textClass = 'step-text-tree' + (isCurrent ? ' t-now' : isDone ? ' t-done' : isWaiting ? ' t-wait' : '');
 
         let rightContent = '';
         if (isCurrent) rightContent = '<span class="badge b-now">今ここ</span>';
@@ -3825,7 +3825,7 @@ async function renderFocusScreen() {
         // 期限タグ
         let dlTag = '';
         if (cStep.deadline && cStep.status !== 'done') {
-          const dlClass = getDeadlineClass(cStep.deadline);
+          let dlClass = getDeadlineClass(cStep.deadline);
           dlTag = '<span class="step-dl-tag' + dlClass + '">' + formatDeadlineShort(cStep.deadline) + '</span>';
         }
 
@@ -3844,7 +3844,7 @@ async function renderFocusScreen() {
         // 期限編集（完了済み以外）
         let dlEdit = '';
         if (!isDone) {
-          const dlVal2 = cStep.deadline || '';
+          let dlVal2 = cStep.deadline || '';
           dlEdit = '<input type="date" class="tree-step-dl" value="' + dlVal2 + '" data-task-id="' + aTask.id + '" data-step-idx="' + ci + '" title="期限変更" />';
         }
 
@@ -3862,7 +3862,7 @@ async function renderFocusScreen() {
       }
 
       // ステップ追加ボタン
-      const addStepEl = document.createElement('div');
+      let addStepEl = document.createElement('div');
       addStepEl.className = 'tree-add-step';
       addStepEl.textContent = '＋ ステップを追加';
       addStepEl.setAttribute('data-add-task-id', aTask.id);
@@ -3876,22 +3876,22 @@ async function renderFocusScreen() {
 
     // ── イベント委譲（削除・ステップ追加・複製・ステップ削除） ──
     tree.addEventListener('click', function(e) {
-      const deleteBtn = e.target.closest('[data-delete-id]');
+      let deleteBtn = e.target.closest('[data-delete-id]');
       if (deleteBtn) {
         e.stopPropagation();
         deleteTask(deleteBtn.getAttribute('data-delete-id'));
         return;
       }
-      const addBtn = e.target.closest('[data-add-task-id]');
+      let addBtn = e.target.closest('[data-add-task-id]');
       if (addBtn) {
         e.stopPropagation();
         addStepToTask(addBtn.getAttribute('data-add-task-id'));
         return;
       }
-      const actionBtn = e.target.closest('[data-tree-action]');
+      let actionBtn = e.target.closest('[data-tree-action]');
       if (actionBtn) {
         e.stopPropagation();
-        const treeAction = actionBtn.getAttribute('data-tree-action');
+        let treeAction = actionBtn.getAttribute('data-tree-action');
         let taskId = actionBtn.getAttribute('data-task-id');
         let stepIdx = parseInt(actionBtn.getAttribute('data-step-idx'));
         handleTreeStepAction(treeAction, taskId, stepIdx);
@@ -3903,7 +3903,7 @@ async function renderFocusScreen() {
       if (e.target.classList.contains('tree-step-dl')) {
         let taskId = e.target.getAttribute('data-task-id');
         let stepIdx = parseInt(e.target.getAttribute('data-step-idx'));
-        const newDl = e.target.value;
+        let newDl = e.target.value;
         updateStepDeadline(taskId, stepIdx, newDl);
       }
     });
@@ -3923,9 +3923,9 @@ async function renderFocusScreen() {
     });
 
     tree.addEventListener('dragend', function() {
-      const all = tree.querySelectorAll('.dragging');
+      let all = tree.querySelectorAll('.dragging');
       for (let i = 0; i < all.length; i++) { all[i].classList.remove('dragging'); }
-      const overs = tree.querySelectorAll('.drag-over');
+      let overs = tree.querySelectorAll('.drag-over');
       for (let j = 0; j < overs.length; j++) { overs[j].classList.remove('drag-over'); }
       treeDragTaskId = null;
       treeDragIdx = null;
@@ -3935,10 +3935,10 @@ async function renderFocusScreen() {
       e.preventDefault();
       let row = e.target.closest('.step-row[data-tree-drag-task]');
       if (!row) { return; }
-      const overTaskId = row.getAttribute('data-tree-drag-task');
+      let overTaskId = row.getAttribute('data-tree-drag-task');
       if (!treeDragTaskId || overTaskId !== treeDragTaskId) { return; }
       e.dataTransfer.dropEffect = 'move';
-      const overs = tree.querySelectorAll('.drag-over');
+      let overs = tree.querySelectorAll('.drag-over');
       for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
       row.classList.add('drag-over');
     });
@@ -3947,8 +3947,8 @@ async function renderFocusScreen() {
       e.preventDefault();
       let row = e.target.closest('.step-row[data-tree-drag-task]');
       if (!row) { return; }
-      const dropTaskId = row.getAttribute('data-tree-drag-task');
-      const dropIdx = parseInt(row.getAttribute('data-tree-drag-idx'));
+      let dropTaskId = row.getAttribute('data-tree-drag-task');
+      let dropIdx = parseInt(row.getAttribute('data-tree-drag-idx'));
       if (!treeDragTaskId || treeDragTaskId !== dropTaskId || treeDragIdx === dropIdx) { return; }
       treeReorderStep(treeDragTaskId, treeDragIdx, dropIdx);
     });
@@ -3977,11 +3977,11 @@ async function renderFocusScreen() {
     tree.addEventListener('touchmove', function(e) {
       if (!touchActiveTree) { clearTimeout(touchTimerTree); return; }
       e.preventDefault();
-      const touch = e.touches[0];
+      let touch = e.touches[0];
       let el = document.elementFromPoint(touch.clientX, touch.clientY);
       if (!el) { return; }
-      const overRow = el.closest('.step-row[data-tree-drag-task]');
-      const overs = tree.querySelectorAll('.drag-over');
+      let overRow = el.closest('.step-row[data-tree-drag-task]');
+      let overs = tree.querySelectorAll('.drag-over');
       for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
       if (overRow && overRow.getAttribute('data-tree-drag-task') === touchTaskId) {
         overRow.classList.add('drag-over');
@@ -3992,11 +3992,11 @@ async function renderFocusScreen() {
       clearTimeout(touchTimerTree);
 
       // ドロップ先を先に特定（クリア前に）
-      const overs = tree.querySelectorAll('.drag-over');
-      const dropRow = overs.length > 0 ? overs[0] : null;
+      let overs = tree.querySelectorAll('.drag-over');
+      let dropRow = overs.length > 0 ? overs[0] : null;
 
       // クリア
-      const allD = tree.querySelectorAll('.dragging');
+      let allD = tree.querySelectorAll('.dragging');
       for (let d = 0; d < allD.length; d++) { allD[d].classList.remove('dragging'); }
       for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
 
@@ -4004,8 +4004,8 @@ async function renderFocusScreen() {
       touchActiveTree = false;
 
       if (dropRow) {
-        const dropTaskId2 = dropRow.getAttribute('data-tree-drag-task');
-        const dropIdx2 = parseInt(dropRow.getAttribute('data-tree-drag-idx'));
+        let dropTaskId2 = dropRow.getAttribute('data-tree-drag-task');
+        let dropIdx2 = parseInt(dropRow.getAttribute('data-tree-drag-idx'));
         if (touchTaskId === dropTaskId2 && touchIdx !== dropIdx2) {
           treeReorderStep(touchTaskId, touchIdx, dropIdx2);
         }
@@ -4016,9 +4016,9 @@ async function renderFocusScreen() {
     tree.addEventListener('touchcancel', function() {
       clearTimeout(touchTimerTree);
       touchActiveTree = false;
-      const allD = tree.querySelectorAll('.dragging');
+      let allD = tree.querySelectorAll('.dragging');
       for (let d = 0; d < allD.length; d++) { allD[d].classList.remove('dragging'); }
-      const overs = tree.querySelectorAll('.drag-over');
+      let overs = tree.querySelectorAll('.drag-over');
       for (let i = 0; i < overs.length; i++) { overs[i].classList.remove('drag-over'); }
       touchTaskId = null; touchIdx = null; touchRow = null;
     });
@@ -4026,13 +4026,13 @@ async function renderFocusScreen() {
 
   // ── 完了済み ──
   if (doneTasks.length > 0) {
-    const divider2 = document.createElement('div');
+    let divider2 = document.createElement('div');
     divider2.className = 'divider';
     divider2.textContent = '完了済み';
     container.appendChild(divider2);
 
     for (let di = 0; di < doneTasks.length; di++) {
-      const dRow = document.createElement('div');
+      let dRow = document.createElement('div');
       dRow.innerHTML =
         '<div class="parent-row" style="opacity:0.4">'
         + '<div class="parent-icon pi-done">✓</div>'
@@ -4049,7 +4049,7 @@ async function renderFocusScreen() {
     }
   }
 
-  const spacer = document.createElement('div');
+  let spacer = document.createElement('div');
   spacer.className = 'spacer';
   container.appendChild(spacer);
 }
@@ -4063,8 +4063,8 @@ function updateSettingsScreen() {
   let provider = getProvider();
 
   // プロバイダーボタンの表示切替
-  const gemBtn = document.getElementById('providerGemini');
-  const claBtn = document.getElementById('providerClaude');
+  let gemBtn = document.getElementById('providerGemini');
+  let claBtn = document.getElementById('providerClaude');
   if (provider === 'gemini') {
     gemBtn.style.background = 'var(--green)'; gemBtn.style.color = '#000'; gemBtn.style.border = 'none';
     claBtn.style.background = 'var(--surface)'; claBtn.style.color = 'var(--text)'; claBtn.style.border = '1px solid var(--border)';
@@ -4078,8 +4078,8 @@ function updateSettingsScreen() {
   }
 
   // Geminiキー状態
-  const gemKey = getApiKey('gemini');
-  const gemStatus = document.getElementById('geminiKeyStatus');
+  let gemKey = getApiKey('gemini');
+  let gemStatus = document.getElementById('geminiKeyStatus');
   if (gemKey) {
     gemStatus.innerHTML = '<span class="settings-status status-ok">✓ 設定済み</span>';
     document.getElementById('geminiKeyInput').placeholder = '••••' + gemKey.slice(-4) + '（変更する場合は新しいキーを入力）';
@@ -4088,8 +4088,8 @@ function updateSettingsScreen() {
   }
 
   // Claudeキー状態
-  const claKey = getApiKey('claude');
-  const claStatus = document.getElementById('claudeKeyStatus');
+  let claKey = getApiKey('claude');
+  let claStatus = document.getElementById('claudeKeyStatus');
   if (isArtifactEnv()) {
     claStatus.innerHTML = '<span class="settings-status status-ok">✓ Artifact環境（キー不要）</span>';
   } else if (claKey) {
@@ -4100,12 +4100,12 @@ function updateSettingsScreen() {
   }
 
   // データ統計
-  const statsEl = document.getElementById('dataStats');
+  let statsEl = document.getElementById('dataStats');
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       let d = JSON.parse(raw);
-      const active = d.tasks.filter(function(t) { return t.status === 'active'; }).length;
+      let active = d.tasks.filter(function(t) { return t.status === 'active'; }).length;
       let done = d.tasks.filter(function(t) { return t.status === 'done'; }).length;
       statsEl.textContent = '進行中: ' + active + '件 / 完了済み: ' + done + '件';
     } else {
@@ -4116,8 +4116,8 @@ function updateSettingsScreen() {
   }
 
   // プロフィール表示
-  const profEl = document.getElementById('profileSummary');
-  const prof = getProfile();
+  let profEl = document.getElementById('profileSummary');
+  let prof = getProfile();
   if (prof) {
     let parts = [];
     if (prof.job) { parts.push('職種・立場：' + prof.job); }
@@ -4147,7 +4147,7 @@ function updateSettingsScreen() {
 
     // ── オンボーディングのナビボタン ──
     document.getElementById('obNext').addEventListener('click', function() {
-      const q = ONBOARDING_QUESTIONS[obCurrentStep];
+      let q = ONBOARDING_QUESTIONS[obCurrentStep];
       // テキスト入力の場合、値を取得
       if (q.type === 'text') {
         let inp = document.getElementById('obTextInput');
